@@ -1,0 +1,21 @@
+# Secrets
+.env
+.env.local
+
+# Runtime state
+store_config.json
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+env/
+*.egg-info/
+dist/
+build/
+
+# OS
+.DS_Store
+Thumbs.db
