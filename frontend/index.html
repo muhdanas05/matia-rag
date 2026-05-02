@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Route 66 AI - Premium</title>
+    
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet">
+    
+    <!-- Phosphor Icons -->
+    <script src="https://unpkg.com/@phosphor-icons/web"></script>
+    
+    <!-- Marked.js for Markdown -->
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+
+    <!-- Custom CSS -->
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+    <!-- Main Application Container -->
+    <div id="app-container">
+        
+        <!-- Sidebar -->
+        <aside id="sidebar" class="glass-panel">
+            <div class="sidebar-header">
+                <button id="new-chat-btn" class="glow-btn">
+                    <i class="ph ph-plus"></i> New Chat
+                </button>
+            </div>
+            
+            <div class="sidebar-content" id="conversation-list">
+                <!-- Conversations injected here -->
+            </div>
+            
+            <div class="sidebar-footer">
+                <button id="open-store-btn" class="nav-btn">
+                    <i class="ph ph-database"></i> Knowledge Store
+                </button>
+            </div>
+        </aside>
+
+        <!-- Main Content Area -->
+        <main id="main-content">
+            <header class="top-bar">
+                <button id="toggle-sidebar-btn" class="icon-btn">
+                    <i class="ph ph-list"></i>
+                </button>
+                <div class="header-title">Route 66 AI</div>
+            </header>
+
+            <div id="chat-container">
+                <!-- Empty State -->
+                <div id="empty-state" class="active">
+                    <div class="hero-logo">
+                        <i class="ph ph-map-pin-line"></i>
+                    </div>
+                    <h1>Ready to explore Route 66?</h1>
+                    <p>Ask anything about the journey, diners, or history.</p>
+                </div>
+                
+                <div id="messages-wrapper">
+                    <!-- Chat messages injected here -->
+                </div>
+                
+                <div id="loading-indicator" class="hidden">
+                    <div class="typing-indicator">
+                        <span></span><span></span><span></span>
+                    </div>
+                </div>
+            </div>
+
+            <div id="input-container">
+                <div class="input-box glass-panel">
+                    <textarea id="chat-input" placeholder="Message Route 66 AI..." rows="1"></textarea>
+                    <button id="send-btn" class="icon-btn glow-text">
+                        <i class="ph ph-paper-plane-right"></i>
+                    </button>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <!-- Knowledge Store Modal -->
+    <div id="modal-overlay" class="hidden">
+        <div id="knowledge-modal" class="glass-panel modal-content">
+            <div class="modal-header">
+                <h2><i class="ph ph-database"></i> Knowledge Store</h2>
+                <button id="close-modal-btn" class="icon-btn"><i class="ph ph-x"></i></button>
+            </div>
+            
+            <div class="modal-body">
+                <!-- Store Status -->
+                <div class="status-card glass-panel-inner">
+                    <div class="status-header">
+                        <h3>Vector Store Status</h3>
+                        <span id="store-badge" class="badge checking">Checking...</span>
+                    </div>
+                    <div id="store-actions" class="mt-2 hidden">
+                        <button id="create-store-btn" class="action-btn outline">Create Store</button>
+                    </div>
+                    <div id="store-active-actions" class="mt-2 hidden flex-between">
+                        <span id="store-name-display" class="text-sm opacity-70"></span>
+                        <button id="delete-store-btn" class="action-btn danger">Delete</button>
+                    </div>
+                </div>
+
+                <!-- File Upload -->
+                <div id="upload-section" class="upload-area mt-4 hidden">
+                    <input type="file" id="file-upload-input" class="hidden-input">
+                    <label for="file-upload-input" class="upload-label">
+                        <i class="ph ph-upload-simple"></i>
+                        <span>Click or drag files to upload</span>
+                        <small>PDF, TXT, MD, CSV, DOCX</small>
+                    </label>
+                </div>
+
+                <!-- File List -->
+                <div class="file-list-section mt-4">
+                    <div class="flex-between mb-2">
+                        <h3>Documents (<span id="file-count">0</span>)</h3>
+                        <button id="refresh-files-btn" class="icon-btn small"><i class="ph ph-arrows-clockwise"></i></button>
+                    </div>
+                    <div id="file-list" class="file-list">
+                        <!-- Files injected here -->
+                        <div class="empty-files">No documents uploaded.</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Snippet Modal -->
+    <div id="snippet-modal-overlay" class="hidden">
+        <div class="glass-panel modal-content">
+            <div class="modal-header">
+                <h2 id="snippet-modal-title"><i class="ph ph-file-text"></i> Citation Source</h2>
+                <button id="close-snippet-btn" class="icon-btn"><i class="ph ph-x"></i></button>
+            </div>
+            
+            <div class="modal-body" id="snippet-modal-body">
+                <!-- Snippet content injected here -->
+            </div>
+        </div>
+    </div>
+
+    <!-- Custom Logic -->
+    <script src="app.js"></script>
+</body>
+</html>
