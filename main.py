@@ -169,7 +169,10 @@ async def upload_file(file: UploadFile = File(...)):
 
     store = cfg["name"]
     data = await file.read()
-    mime = file.content_type or "application/octet-stream"
+    ext = Path(file.filename or "").suffix.lower()
+    mime = {".md": "text/plain", ".txt": "text/plain", ".csv": "text/plain",
+            ".json": "application/json", ".html": "text/html", ".xml": "text/xml"
+            }.get(ext) or file.content_type or "application/octet-stream"
     category = detect_category(file.filename or "")
     metadata = [
         {"key": "category", "stringValue": category},
@@ -197,7 +200,9 @@ async def _run_ingest(folder_path: str, store: str):
 
     for f in files:
         ingest_state["current"] = f.name
-        mime = mimetypes.guess_type(f.name)[0] or "application/octet-stream"
+        mime = {".md": "text/plain", ".txt": "text/plain", ".csv": "text/plain",
+                ".json": "application/json", ".html": "text/html", ".xml": "text/xml"
+                }.get(f.suffix.lower()) or mimetypes.guess_type(f.name)[0] or "application/octet-stream"
         category = detect_category(f.name)
         metadata = [
             {"key": "category", "stringValue": category},
