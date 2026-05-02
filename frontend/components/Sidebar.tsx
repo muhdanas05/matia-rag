@@ -9,155 +9,133 @@ interface SidebarProps {
   onSelectConv: (id: string) => void;
   onDeleteConv: (id: string) => void;
   onNewConv: () => void;
-  
   storeReady: boolean;
   onCreateStore: () => void;
   onDeleteStore: () => void;
-  
   files: FileEntry[];
   onUploadFile: (file: File) => Promise<void>;
   onDeleteFile: (name: string) => void;
-  
   onIngestComplete: () => void;
   onError: (msg: string) => void;
 }
 
 export function Sidebar({
-  conversations,
-  activeConvId,
-  onSelectConv,
-  onDeleteConv,
-  onNewConv,
-  storeReady,
-  onCreateStore,
-  onDeleteStore,
-  files,
-  onUploadFile,
-  onDeleteFile,
-  onIngestComplete,
-  onError
+  conversations, activeConvId, onSelectConv, onDeleteConv, onNewConv,
+  storeReady, onCreateStore, onDeleteStore,
+  files, onUploadFile, onDeleteFile, onIngestComplete, onError
 }: SidebarProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [isDragging, setIsDragging] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
 
-  const handleDragOver = (e: React.DragEvent) => {
-    e.preventDefault();
-    if (storeReady) setIsDragging(true);
-  };
-
-  const handleDragLeave = (e: React.DragEvent) => {
-    e.preventDefault();
-    setIsDragging(false);
-  };
-
+  const handleDragOver = (e: React.DragEvent) => { e.preventDefault(); if (storeReady) setIsDragging(true); };
+  const handleDragLeave = (e: React.DragEvent) => { e.preventDefault(); setIsDragging(false); };
   const handleDrop = async (e: React.DragEvent) => {
-    e.preventDefault();
-    setIsDragging(false);
+    e.preventDefault(); setIsDragging(false);
     if (!storeReady) return;
-    
     const file = e.dataTransfer.files[0];
-    if (file) {
-      await handleFileUpload(file);
-    }
+    if (file) await handleFileUpload(file);
   };
-
   const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (file) {
-      await handleFileUpload(file);
-    }
-    // reset input
+    if (file) await handleFileUpload(file);
     if (fileInputRef.current) fileInputRef.current.value = '';
   };
-
   const handleFileUpload = async (file: File) => {
-    try {
-      setIsUploading(true);
-      await onUploadFile(file);
-    } catch (err: any) {
-      onError(err.message || 'Upload failed');
-    } finally {
-      setIsUploading(false);
-    }
+    try { setIsUploading(true); await onUploadFile(file); }
+    catch (err: any) { onError(err.message || 'Upload failed'); }
+    finally { setIsUploading(false); }
   };
 
   return (
-    <div className="w-80 bg-sidebar border-r border-[#30363d] flex flex-col h-full overflow-hidden">
-      
-      {/* Conversations Section */}
-      <div className="p-4 flex flex-col flex-1 min-h-0">
-        <button 
+    <div className="w-80 flex flex-col h-full overflow-hidden" style={{ background: 'var(--sidebar)' }}>
+
+      {/* Logo */}
+      <div className="px-5 py-4 border-b border-white/10 flex-shrink-0">
+        <div className="flex items-center gap-3">
+          <div className="flex-shrink-0 w-9 h-9 rounded-full border-2 border-[#E8600A] flex items-center justify-center">
+            <span className="text-[9px] font-black text-[#E8600A] leading-none text-center">ROUTE<br/>66</span>
+          </div>
+          <div>
+            <div className="text-white font-bold text-sm tracking-tight leading-none">Route 66 AI</div>
+            <div className="text-white/40 text-[10px] mt-0.5 tracking-wide uppercase">Document Assistant</div>
+          </div>
+        </div>
+      </div>
+
+      {/* New Chat */}
+      <div className="px-4 pt-4 pb-2 flex-shrink-0">
+        <button
           onClick={onNewConv}
-          className="w-full mb-4 bg-accent/10 hover:bg-accent/20 text-accent border border-accent/30 py-2 rounded-md flex items-center justify-center gap-2 transition-colors font-medium text-sm"
+          className="w-full py-2.5 rounded-lg text-sm font-semibold transition-all flex items-center justify-center gap-2"
+          style={{ background: 'var(--accent)', color: '#fff' }}
+          onMouseOver={e => (e.currentTarget.style.background = 'var(--accent-hover)')}
+          onMouseOut={e => (e.currentTarget.style.background = 'var(--accent)')}
         >
           <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 4v16m8-8H4"/></svg>
-          New chat
+          New Chat
         </button>
-        
-        <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">Conversations</h3>
-        <div className="flex-1 overflow-y-auto -mx-2 px-2 space-y-1">
+      </div>
+
+      {/* Conversations */}
+      <div className="px-4 flex flex-col flex-1 min-h-0 pb-2">
+        <p className="text-[10px] font-semibold text-white/30 uppercase tracking-widest mb-2">Conversations</p>
+        <div className="flex-1 overflow-y-auto space-y-0.5 -mx-1 px-1">
           {conversations.map(conv => (
-            <div 
-              key={conv.id} 
-              className={`flex items-center group cursor-pointer rounded-md p-2 text-sm transition-colors ${
-                activeConvId === conv.id ? 'bg-[#30363d] text-white' : 'text-gray-300 hover:bg-[#21262d]'
-              }`}
+            <div
+              key={conv.id}
               onClick={() => onSelectConv(conv.id)}
+              className={`flex items-center group cursor-pointer rounded-lg px-3 py-2.5 text-sm transition-all ${
+                activeConvId === conv.id
+                  ? 'bg-[#E8600A]/15 border-l-2 border-[#E8600A] pl-2.5'
+                  : 'hover:bg-white/5 border-l-2 border-transparent'
+              }`}
             >
-              <svg className="w-4 h-4 mr-2 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"/></svg>
-              <span className="flex-1 truncate">{conv.title}</span>
+              <svg className="w-3.5 h-3.5 mr-2 flex-shrink-0 text-white/30" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"/></svg>
+              <span className={`flex-1 truncate ${activeConvId === conv.id ? 'text-[#E8600A]' : 'text-white/60'}`}>{conv.title}</span>
               <button
-                onClick={(e) => { e.stopPropagation(); onDeleteConv(conv.id); }}
-                className="opacity-0 group-hover:opacity-100 text-gray-500 hover:text-red-400 transition-opacity focus:outline-none"
+                onClick={e => { e.stopPropagation(); onDeleteConv(conv.id); }}
+                className="opacity-0 group-hover:opacity-100 text-white/30 hover:text-red-400 transition-all ml-1"
               >
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
+                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12"/></svg>
               </button>
             </div>
           ))}
           {conversations.length === 0 && (
-            <div className="text-sm text-gray-500 italic mt-2">No conversations.</div>
+            <p className="text-xs text-white/25 italic px-2 pt-1">No conversations yet.</p>
           )}
         </div>
       </div>
 
-      {/* Store & Knowledge Section */}
-      <div className="p-4 border-t border-[#30363d] bg-sidebar flex-shrink-0">
-        <div className="flex items-center justify-between mb-4">
+      {/* Knowledge Store */}
+      <div className="px-4 py-4 border-t border-white/10 flex-shrink-0">
+        <div className="flex items-center justify-between mb-3">
           <div className="flex items-center gap-2">
-            <h3 className="text-sm font-semibold text-gray-200">Knowledge Store</h3>
-            <span className={`w-2.5 h-2.5 rounded-full ${storeReady ? 'bg-green-500 shadow-[0_0_8px_rgba(34,197,94,0.6)]' : 'bg-red-500'}`}></span>
+            <p className="text-[10px] font-semibold text-white/30 uppercase tracking-widest">Knowledge Store</p>
+            <span className={`w-2 h-2 rounded-full ${storeReady ? 'bg-green-400 shadow-[0_0_6px_rgba(74,222,128,0.6)]' : 'bg-red-500'}`} />
           </div>
           {storeReady ? (
-            <button onClick={onDeleteStore} className="text-xs text-red-400 hover:text-red-300">Delete</button>
+            <button onClick={onDeleteStore} className="text-xs text-red-400/70 hover:text-red-400 transition-colors">Delete</button>
           ) : (
-            <button onClick={onCreateStore} className="text-xs text-accent hover:text-accent-hover">Create</button>
+            <button onClick={onCreateStore} className="text-xs text-[#E8600A] hover:text-[#C5501A] transition-colors font-medium">+ Create</button>
           )}
         </div>
 
         {storeReady && (
           <>
-            <div 
+            <div
               onDragOver={handleDragOver}
               onDragLeave={handleDragLeave}
               onDrop={handleDrop}
               onClick={() => fileInputRef.current?.click()}
-              className={`border-2 border-dashed rounded-lg p-4 text-center cursor-pointer transition-colors ${
-                isDragging ? 'border-accent bg-accent/5' : 'border-[#30363d] hover:border-gray-500 bg-[#0f1115]'
+              className={`border-2 border-dashed rounded-lg p-3 text-center cursor-pointer transition-all ${
+                isDragging ? 'border-[#E8600A] bg-[#E8600A]/10' : 'border-white/15 hover:border-white/30'
               }`}
             >
-              <input 
-                type="file" 
-                ref={fileInputRef} 
-                onChange={handleFileSelect} 
-                className="hidden" 
-              />
-              <svg className="w-6 h-6 mx-auto mb-2 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"/></svg>
-              <p className="text-xs text-gray-400">
-                {isUploading ? 'Uploading...' : 'Click or drag file to upload'}
-              </p>
+              <input type="file" ref={fileInputRef} onChange={handleFileSelect} className="hidden" />
+              <svg className="w-5 h-5 mx-auto mb-1 text-white/30" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"/></svg>
+              <p className="text-[11px] text-white/40">{isUploading ? 'Uploading…' : 'Click or drag to upload'}</p>
             </div>
-
             <FileList files={files} onDelete={onDeleteFile} storeReady={storeReady} />
             <IngestPanel storeReady={storeReady} onComplete={onIngestComplete} onError={onError} />
           </>

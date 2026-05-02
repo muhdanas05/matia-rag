@@ -4,14 +4,14 @@
 
 @layer base {
   :root {
-    --background: #0f1115;
-    --foreground: #f8fafc;
-    --sidebar: #161b22;
-    --border: #30363d;
-    --accent: #58a6ff;
-    --accent-hover: #3182ce;
-    --bot-msg: #21262d;
-    --user-msg: #7e22ce;
+    --background: #FAFAF8;
+    --foreground: #1A1A18;
+    --sidebar: #0D0C0B;
+    --border: #E5E0D8;
+    --accent: #E8600A;
+    --accent-hover: #C5501A;
+    --bot-msg: #FFFFFF;
+    --user-msg: #E8600A;
   }
 }
 

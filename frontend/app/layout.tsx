@@ -13,8 +13,8 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Matia RAG Chatbot",
-  description: "Document Q&A Chatbot",
+  title: "Route 66 AI Assistant",
+  description: "Ask anything about your Route 66 documents — powered by RAG.",
 };
 
 export default function RootLayout({
