@@ -1,8 +1,9 @@
 'use client';
 import React, { useRef, useEffect, useState, useCallback } from 'react';
+import { ArrowUp, PanelLeftClose, PanelLeftOpen, Shield } from 'lucide-react';
 import { Message } from '../lib/api';
 
-interface ChatAreaProps {
+interface Props {
   messages: Message[];
   onSendMessage: (msg: string) => void;
   isTyping: boolean;
@@ -11,157 +12,192 @@ interface ChatAreaProps {
   onToggleSidebar: () => void;
 }
 
-// ── Markdown renderer ──────────────────────────────────────────────────────────
-function renderMarkdown(raw: string): string {
+// ── Markdown ─────────────────────────────────────────────────────────────────
+function md(raw: string): string {
   const lines = raw.split('\n');
-  let html = '';
-  let inUl = false, inOl = false, inPre = false, codeLines: string[] = [];
+  let out = '', inUl = false, inOl = false, inPre = false, code: string[] = [];
+
+  const esc = (s: string) => s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  const inline = (s: string) =>
+    esc(s)
+      .replace(/`([^`]+)`/g,'<code>$1</code>')
+      .replace(/\*\*\*(.+?)\*\*\*/g,'<strong><em>$1</em></strong>')
+      .replace(/\*\*(.+?)\*\*/g,'<strong>$1</strong>')
+      .replace(/\*(.+?)\*/g,'<em>$1</em>');
 
   const closeList = () => {
-    if (inUl) { html += '</ul>'; inUl = false; }
-    if (inOl) { html += '</ol>'; inOl = false; }
+    if (inUl) { out += '</ul>'; inUl = false; }
+    if (inOl) { out += '</ol>'; inOl = false; }
   };
 
-  const inline = (s: string) =>
-    s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
-     .replace(/`([^`]+)`/g, '<code>$1</code>')
-     .replace(/\*\*\*(.+?)\*\*\*/g, '<strong><em>$1</em></strong>')
-     .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
-     .replace(/\*(.+?)\*/g, '<em>$1</em>');
-
-  for (const raw_line of lines) {
-    const line = raw_line;
-
-    // Code fence
+  for (const line of lines) {
     if (line.startsWith('```')) {
-      if (!inPre) { closeList(); inPre = true; codeLines = []; continue; }
-      else {
-        const escaped = codeLines.join('\n').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
-        html += `<pre><code>${escaped}</code></pre>`;
-        inPre = false; continue;
-      }
+      if (!inPre) { closeList(); inPre = true; code = []; continue; }
+      out += `<pre><code>${esc(code.join('\n'))}</code></pre>`;
+      inPre = false; continue;
     }
-    if (inPre) { codeLines.push(line); continue; }
+    if (inPre) { code.push(line); continue; }
 
     const isUl = /^[-*] /.test(line);
     const isOl = /^\d+\. /.test(line);
-    if (!isUl && inUl) { html += '</ul>'; inUl = false; }
-    if (!isOl && inOl) { html += '</ol>'; inOl = false; }
+    if (!isUl && inUl) { out += '</ul>'; inUl = false; }
+    if (!isOl && inOl) { out += '</ol>'; inOl = false; }
 
-    if (line.startsWith('### '))     { closeList(); html += `<h3>${inline(line.slice(4))}</h3>`; continue; }
-    if (line.startsWith('## '))      { closeList(); html += `<h2>${inline(line.slice(3))}</h2>`; continue; }
-    if (line.startsWith('# '))       { closeList(); html += `<h1>${inline(line.slice(2))}</h1>`; continue; }
-    if (line.match(/^---+$/))        { closeList(); html += '<hr>'; continue; }
-    if (isUl) { if (!inUl) { html += '<ul>'; inUl = true; } html += `<li>${inline(line.slice(2))}</li>`; continue; }
-    if (isOl) { if (!inOl) { html += '<ol>'; inOl = true; } html += `<li>${inline(line.replace(/^\d+\. /, ''))}</li>`; continue; }
-    if (line.trim() === '')          { closeList(); html += '<br>'; continue; }
-    html += `<p>${inline(line)}</p>`;
+    if (/^#{3} /.test(line))      { closeList(); out += `<h3>${inline(line.slice(4))}</h3>`; continue; }
+    if (/^#{2} /.test(line))      { closeList(); out += `<h2>${inline(line.slice(3))}</h2>`; continue; }
+    if (/^# /.test(line))         { closeList(); out += `<h1>${inline(line.slice(2))}</h1>`; continue; }
+    if (/^-{3,}$/.test(line))     { closeList(); out += '<hr>'; continue; }
+    if (isUl) { if (!inUl) { out += '<ul>'; inUl = true; } out += `<li>${inline(line.slice(2))}</li>`; continue; }
+    if (isOl) { if (!inOl) { out += '<ol>'; inOl = true; } out += `<li>${inline(line.replace(/^\d+\. /,''))}</li>`; continue; }
+    if (!line.trim())              { closeList(); out += '<br>'; continue; }
+    out += `<p>${inline(line)}</p>`;
   }
   closeList();
-  if (inPre) {
-    const escaped = codeLines.join('\n').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
-    html += `<pre><code>${escaped}</code></pre>`;
-  }
-  return html;
+  if (inPre) out += `<pre><code>${esc(code.join('\n'))}</code></pre>`;
+  return out;
 }
 
-// ── Component ──────────────────────────────────────────────────────────────────
-export function ChatArea({ messages, onSendMessage, isTyping, storeReady, sidebarOpen, onToggleSidebar }: ChatAreaProps) {
-  const [input, setInput] = useState('');
-  const messagesEndRef  = useRef<HTMLDivElement>(null);
-  const textareaRef     = useRef<HTMLTextAreaElement>(null);
-  const scrollRef       = useRef<HTMLDivElement>(null);
-  const isNearBottom    = useRef(true);
+// ── Typewriter placeholder ────────────────────────────────────────────────────
+const PROMPTS = [
+  'Best diners on Route 66?',
+  'Where should I stay in Oklahoma?',
+  'Top motorcycle roads on the route?',
+  'Hidden gems most tourists miss?',
+  'What neon signs are worth seeing?',
+  'How long does the full route take?',
+];
 
-  // Track if user is near the bottom
-  const handleScroll = useCallback(() => {
+function useTypewriter() {
+  const [text, setText]       = useState('');
+  const [idx, setIdx]         = useState(0);
+  const [deleting, setDel]    = useState(false);
+  const [paused, setPaused]   = useState(false);
+
+  useEffect(() => {
+    const full = PROMPTS[idx];
+    if (paused) {
+      const t = setTimeout(() => { setDel(true); setPaused(false); }, 1800);
+      return () => clearTimeout(t);
+    }
+    if (!deleting) {
+      if (text.length < full.length) {
+        const t = setTimeout(() => setText(full.slice(0, text.length + 1)), 45);
+        return () => clearTimeout(t);
+      }
+      setPaused(true);
+    } else {
+      if (text.length > 0) {
+        const t = setTimeout(() => setText(text.slice(0, -1)), 22);
+        return () => clearTimeout(t);
+      }
+      setDel(false);
+      setIdx(i => (i + 1) % PROMPTS.length);
+    }
+  }, [text, deleting, paused, idx]);
+
+  return text;
+}
+
+// ── Suggestion chips ──────────────────────────────────────────────────────────
+const CHIPS = [
+  '🍔  Best diners',
+  '🏨  Where to stay',
+  '🏍️  Motorcycle roads',
+  '✨  Hidden gems',
+  '🌃  Neon signs',
+  '📍  Must-see stops',
+];
+
+// ── Component ─────────────────────────────────────────────────────────────────
+export function ChatArea({ messages, onSendMessage, isTyping, storeReady, sidebarOpen, onToggleSidebar }: Props) {
+  const [input, setInput]         = useState('');
+  const textareaRef               = useRef<HTMLTextAreaElement>(null);
+  const scrollRef                 = useRef<HTMLDivElement>(null);
+  const bottomRef                 = useRef<HTMLDivElement>(null);
+  const nearBottom                = useRef(true);
+  const typewriter                = useTypewriter();
+  const isEmpty                   = messages.length === 0 && !isTyping;
+
+  const onScroll = useCallback(() => {
     const el = scrollRef.current;
-    if (!el) return;
-    isNearBottom.current = el.scrollHeight - el.scrollTop - el.clientHeight < 120;
+    if (el) nearBottom.current = el.scrollHeight - el.scrollTop - el.clientHeight < 140;
   }, []);
 
-  // Only auto-scroll when near bottom
   useEffect(() => {
-    if (isNearBottom.current) {
-      messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-    }
+    if (nearBottom.current) bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, isTyping]);
 
-  const handleSend = () => {
+  const send = () => {
     const msg = input.trim();
     if (!msg || !storeReady) return;
     onSendMessage(msg);
     setInput('');
-    if (textareaRef.current) {
-      textareaRef.current.style.height = 'auto';
-      textareaRef.current.focus();
-    }
-    isNearBottom.current = true;
+    nearBottom.current = true;
+    if (textareaRef.current) { textareaRef.current.style.height = 'auto'; textareaRef.current.focus(); }
   };
 
-  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend(); }
+  const onKey = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); }
   };
 
-  const handleInput = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+  const onType = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     setInput(e.target.value);
-    const ta = e.target;
-    ta.style.height = 'auto';
-    ta.style.height = Math.min(ta.scrollHeight, 160) + 'px';
+    const ta = e.target; ta.style.height = 'auto';
+    ta.style.height = Math.min(ta.scrollHeight, 180) + 'px';
   };
 
-  const isEmpty = messages.length === 0 && !isTyping;
+  const chip = (label: string) => {
+    const q = label.replace(/^[^\s]+\s+/, '');
+    setInput(q);
+    textareaRef.current?.focus();
+  };
 
   return (
-    <div className="flex-1 flex flex-col min-w-0 h-full overflow-hidden" style={{ background: 'var(--bg)' }}>
+    <div className="flex-1 flex flex-col h-full overflow-hidden" style={{ background: 'var(--bg)' }}>
 
-      {/* Header */}
-      <div className="flex-shrink-0 flex items-center gap-3 px-5 h-12 border-b" style={{ background: 'var(--bg-elevated)', borderColor: 'var(--border)' }}>
-        <button
-          onClick={onToggleSidebar}
-          className="w-7 h-7 flex items-center justify-center rounded-md transition-colors hover:bg-black/5"
-          title={sidebarOpen ? 'Collapse sidebar' : 'Expand sidebar'}
-        >
-          <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="1.8" viewBox="0 0 24 24">
-            {sidebarOpen
-              ? <path strokeLinecap="round" strokeLinejoin="round" d="M11 19l-7-7 7-7M18 19l-7-7 7-7"/>
-              : <path strokeLinecap="round" strokeLinejoin="round" d="M13 5l7 7-7 7M6 5l7 7-7 7"/>}
-          </svg>
+      {/* Top bar */}
+      <div className="flex-shrink-0 flex items-center gap-3 px-5 h-11 border-b" style={{ background: 'var(--surface)', borderColor: 'var(--border)' }}>
+        <button onClick={onToggleSidebar} className="p-1.5 rounded-lg hover:bg-black/5 transition-colors text-zinc-400 hover:text-zinc-700">
+          {sidebarOpen ? <PanelLeftClose size={16} /> : <PanelLeftOpen size={16} />}
         </button>
         <span className="text-sm font-semibold tracking-tight" style={{ color: 'var(--text)' }}>Route 66 AI</span>
-        <span className="ml-auto text-[10px] font-semibold uppercase tracking-widest px-2 py-0.5 rounded-full border" style={{ color: 'var(--accent)', borderColor: 'var(--accent)', background: 'var(--accent-light)' }}>Docs Only</span>
+        <div className="ml-auto flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-widest px-2.5 py-1 rounded-full border" style={{ color: 'var(--accent)', borderColor: 'var(--accent)', background: 'var(--accent-dim)' }}>
+          <Shield size={10} />
+          Docs only
+        </div>
       </div>
 
       {/* Messages */}
-      <div
-        ref={scrollRef}
-        onScroll={handleScroll}
-        className="flex-1 overflow-y-auto px-4 py-6"
-        style={{ background: 'var(--bg)' }}
-      >
-        <div className="max-w-3xl mx-auto space-y-5">
+      <div ref={scrollRef} onScroll={onScroll} className="flex-1 overflow-y-auto" style={{ background: 'var(--bg)' }}>
+        <div className="w-full max-w-4xl mx-auto px-4 py-8 space-y-6">
 
+          {/* Empty state */}
           {isEmpty && (
-            <div className="flex flex-col items-center justify-center py-24 gap-4" style={{ color: 'var(--text-muted)' }}>
-              <div className="w-14 h-14 rounded-full border-2 flex items-center justify-center" style={{ borderColor: 'var(--border)' }}>
-                <span className="text-[10px] font-black leading-none text-center" style={{ color: 'var(--text-muted)' }}>ROUTE<br/>66</span>
-              </div>
-              <div className="text-center space-y-1">
-                <p className="text-base font-semibold" style={{ color: 'var(--text)' }}>Ask your Route 66 guides</p>
-                <p className="text-sm max-w-xs" style={{ color: 'var(--text-muted)' }}>
-                  {storeReady ? 'Every answer comes from the uploaded guides.' : 'Create a knowledge store to get started.'}
+            <div className="flex flex-col items-center justify-center py-16 gap-6 anim-in">
+              <div>
+                <div className="w-12 h-12 rounded-2xl mx-auto mb-4 flex items-center justify-center" style={{ background: 'var(--accent-dim)', border: '1px solid rgba(232,96,10,0.2)' }}>
+                  <span className="text-[9px] font-black leading-none text-center" style={{ color: 'var(--accent)' }}>ROUTE<br/>66</span>
+                </div>
+                <h2 className="text-xl font-semibold text-center mb-1" style={{ color: 'var(--text)' }}>
+                  {storeReady ? 'Ask your Route 66 guides' : 'Set up your knowledge store'}
+                </h2>
+                <p className="text-sm text-center max-w-sm mx-auto" style={{ color: 'var(--muted)' }}>
+                  {storeReady
+                    ? 'Every answer comes from the official guides — no guessing.'
+                    : 'Create a store and upload your guides in the sidebar to get started.'}
                 </p>
               </div>
+
               {storeReady && (
-                <div className="grid grid-cols-2 gap-2 mt-2 w-full max-w-sm">
-                  {['Best diners on Route 66?', 'Where to stay under $100?', 'Top motorcycle roads?', 'Hidden gems to visit?'].map(q => (
+                <div className="flex flex-wrap justify-center gap-2 max-w-lg">
+                  {CHIPS.map(c => (
                     <button
-                      key={q}
-                      onClick={() => { if (storeReady) onSendMessage(q); }}
-                      className="text-left text-xs px-3 py-2.5 rounded-xl border transition-all hover:border-orange-300"
-                      style={{ background: 'var(--bg-elevated)', borderColor: 'var(--border)', color: 'var(--text-muted)' }}
+                      key={c}
+                      onClick={() => chip(c)}
+                      className="text-xs px-3.5 py-2 rounded-full border transition-all hover:border-orange-300 hover:bg-orange-50 anim-up"
+                      style={{ background: 'var(--surface)', borderColor: 'var(--border)', color: 'var(--muted)' }}
                     >
-                      {q}
+                      {c}
                     </button>
                   ))}
                 </div>
@@ -169,98 +205,117 @@ export function ChatArea({ messages, onSendMessage, isTyping, storeReady, sideba
             </div>
           )}
 
+          {/* Message list */}
           {messages.map((msg, i) => (
-            <div key={i} className={`flex msg-in ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+            <div key={i} className={`flex gap-3 anim-up ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+              {/* Bot avatar */}
               {msg.role === 'model' && (
-                <div className="w-7 h-7 rounded-full flex items-center justify-center flex-shrink-0 mr-2.5 mt-0.5 border" style={{ background: 'var(--bg-elevated)', borderColor: 'var(--border)' }}>
-                  <span className="text-[7px] font-black leading-none" style={{ color: 'var(--accent)' }}>R66</span>
+                <div className="w-8 h-8 rounded-xl flex items-center justify-center flex-shrink-0 mt-0.5 border" style={{ background: 'var(--surface)', borderColor: 'var(--border)' }}>
+                  <span className="text-[7px] font-black leading-none text-center" style={{ color: 'var(--accent)' }}>R<br/>66</span>
                 </div>
               )}
-              <div className={`max-w-[78%] ${msg.role === 'user' ? 'max-w-[65%]' : ''}`}>
-                <div
-                  className={`px-4 py-3 rounded-2xl text-sm leading-relaxed shadow-sm ${msg.role === 'user' ? 'rounded-br-sm text-white' : 'rounded-bl-sm border'}`}
-                  style={msg.role === 'user'
-                    ? { background: 'var(--user-bubble)' }
-                    : { background: 'var(--bot-bubble)', borderColor: 'var(--border)', color: 'var(--text)' }
-                  }
-                >
-                  {msg.role === 'user'
-                    ? <p className="whitespace-pre-wrap">{msg.content}</p>
-                    : <div className="prose" dangerouslySetInnerHTML={{ __html: renderMarkdown(msg.content) }} />
-                  }
 
-                  {/* Citations */}
-                  {msg.role === 'model' && msg.citations && msg.citations.length > 0 && (
-                    <details className="mt-3 pt-3 border-t group" style={{ borderColor: 'var(--border)' }}>
-                      <summary className="cursor-pointer text-xs font-medium select-none flex items-center gap-1.5 list-none" style={{ color: 'var(--accent)' }}>
-                        <svg className="w-3 h-3 transition-transform group-open:rotate-90" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 5l7 7-7 7"/></svg>
-                        {msg.citations.length} source{msg.citations.length > 1 ? 's' : ''}
-                      </summary>
-                      <div className="mt-2 space-y-1.5 pl-2">
-                        {msg.citations.map((c, j) => (
-                          <div key={j} className="text-xs p-2.5 rounded-lg border" style={{ background: 'var(--bg)', borderColor: 'var(--border)' }}>
-                            {c.snippet && <p className="italic leading-relaxed" style={{ color: 'var(--text-muted)' }}>"{c.snippet}"</p>}
-                          </div>
-                        ))}
-                      </div>
-                    </details>
-                  )}
-                </div>
+              <div className={msg.role === 'user' ? 'max-w-[60%]' : 'flex-1 min-w-0 max-w-3xl'}>
+                {msg.role === 'user' ? (
+                  <div className="px-4 py-3 rounded-2xl rounded-br-sm text-sm text-white leading-relaxed shadow-sm" style={{ background: 'var(--user-bg)' }}>
+                    <p className="whitespace-pre-wrap">{msg.content}</p>
+                  </div>
+                ) : (
+                  <div>
+                    <div className="prose" dangerouslySetInnerHTML={{ __html: md(msg.content) }} />
+
+                    {/* Citations */}
+                    {msg.citations && msg.citations.length > 0 && (
+                      <details className="mt-3 group" open={false}>
+                        <summary className="cursor-pointer text-xs font-medium flex items-center gap-1.5 select-none w-fit list-none py-1" style={{ color: 'var(--accent)' }}>
+                          <span className="transition-transform group-open:rotate-90 inline-block">▶</span>
+                          {msg.citations.length} source{msg.citations.length > 1 ? 's' : ''} referenced
+                        </summary>
+                        <div className="mt-2 space-y-1.5 border-l-2 pl-3" style={{ borderColor: 'var(--border)' }}>
+                          {msg.citations.map((c, j) => c.snippet && (
+                            <p key={j} className="text-xs italic leading-relaxed" style={{ color: 'var(--muted)' }}>"{c.snippet}"</p>
+                          ))}
+                        </div>
+                      </details>
+                    )}
+                  </div>
+                )}
               </div>
+
+              {/* User avatar */}
+              {msg.role === 'user' && (
+                <div className="w-8 h-8 rounded-xl flex items-center justify-center flex-shrink-0 mt-0.5 border" style={{ background: '#F2EEE9', borderColor: 'var(--border)' }}>
+                  <span className="text-[10px]">👤</span>
+                </div>
+              )}
             </div>
           ))}
 
-          {/* Typing indicator */}
+          {/* Typing */}
           {isTyping && (
-            <div className="flex items-start gap-2.5 msg-in">
-              <div className="w-7 h-7 rounded-full flex items-center justify-center flex-shrink-0 border" style={{ background: 'var(--bg-elevated)', borderColor: 'var(--border)' }}>
-                <span className="text-[7px] font-black" style={{ color: 'var(--accent)' }}>R66</span>
+            <div className="flex gap-3 anim-up">
+              <div className="w-8 h-8 rounded-xl flex items-center justify-center flex-shrink-0 border" style={{ background: 'var(--surface)', borderColor: 'var(--border)' }}>
+                <span className="text-[7px] font-black leading-none text-center" style={{ color: 'var(--accent)' }}>R<br/>66</span>
               </div>
-              <div className="px-4 py-3.5 rounded-2xl rounded-bl-sm border flex items-center gap-1.5" style={{ background: 'var(--bot-bubble)', borderColor: 'var(--border)' }}>
+              <div className="flex items-center gap-1.5 px-4 py-3 rounded-2xl rounded-bl-sm border shadow-sm" style={{ background: 'var(--surface)', borderColor: 'var(--border)' }}>
                 <span className="w-1.5 h-1.5 rounded-full dot1" style={{ background: 'var(--accent)' }} />
-                <span className="w-1.5 h-1.5 rounded-full dot2" style={{ background: 'var(--accent)', opacity: 0.6 }} />
-                <span className="w-1.5 h-1.5 rounded-full dot3" style={{ background: 'var(--accent)', opacity: 0.35 }} />
+                <span className="w-1.5 h-1.5 rounded-full dot2" style={{ background: 'var(--accent)' }} />
+                <span className="w-1.5 h-1.5 rounded-full dot3" style={{ background: 'var(--accent)' }} />
               </div>
             </div>
           )}
 
-          <div ref={messagesEndRef} />
+          <div ref={bottomRef} />
         </div>
       </div>
 
-      {/* Input */}
-      <div className="flex-shrink-0 px-4 pb-4 pt-3 border-t" style={{ background: 'var(--bg-elevated)', borderColor: 'var(--border)' }}>
-        <div className="max-w-3xl mx-auto flex items-end gap-2.5">
-          <div className="flex-1 flex items-end rounded-2xl border transition-all px-4 py-2.5" style={{ background: 'var(--bg)', borderColor: 'var(--border)' }}
-            onFocusCapture={e => (e.currentTarget.style.borderColor = 'var(--accent)')}
-            onBlurCapture={e => (e.currentTarget.style.borderColor = 'var(--border)')}
-          >
-            <textarea
-              ref={textareaRef}
-              value={input}
-              onChange={handleInput}
-              onKeyDown={handleKeyDown}
-              placeholder={storeReady ? 'Ask about Route 66…' : 'Create a knowledge store to start chatting'}
-              disabled={!storeReady}
-              rows={1}
-              className="flex-1 bg-transparent resize-none outline-none text-sm leading-relaxed disabled:opacity-40 disabled:cursor-not-allowed"
-              style={{ color: 'var(--text)', maxHeight: '160px' }}
-            />
+      {/* Input area */}
+      <div className="flex-shrink-0 px-4 pb-5 pt-3 border-t" style={{ background: 'var(--surface)', borderColor: 'var(--border)' }}>
+        <div className="max-w-4xl mx-auto">
+
+          {/* v0-style input box */}
+          <div className="input-wrap rounded-2xl border transition-all" style={{ background: 'var(--bg)', borderColor: 'var(--border)' }}>
+            <div className="px-4 pt-3.5 pb-1">
+              <textarea
+                ref={textareaRef}
+                value={input}
+                onChange={onType}
+                onKeyDown={onKey}
+                disabled={!storeReady}
+                rows={1}
+                placeholder={isEmpty && storeReady ? typewriter + (typewriter ? '' : ' ') : storeReady ? 'Ask about Route 66…' : 'Create a knowledge store first…'}
+                className="w-full bg-transparent resize-none outline-none text-sm leading-relaxed disabled:opacity-40 disabled:cursor-not-allowed placeholder-zinc-400"
+                style={{ color: 'var(--text)', maxHeight: '180px', fontFamily: 'inherit' }}
+              />
+            </div>
+
+            {/* Action row */}
+            <div className="flex items-center justify-between px-3 pb-3">
+              <div className="flex items-center gap-1.5">
+                <span className="text-[10px] px-2 py-0.5 rounded-full border font-medium" style={{ color: 'var(--muted)', borderColor: 'var(--border)', background: 'transparent' }}>
+                  Route 66 AI
+                </span>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="text-[10px]" style={{ color: 'var(--muted)', opacity: 0.6 }}>
+                  {input ? `${input.length} chars` : 'Shift+Enter for new line'}
+                </span>
+                <button
+                  onClick={send}
+                  disabled={!input.trim() || !storeReady || isTyping}
+                  className="w-8 h-8 rounded-xl flex items-center justify-center transition-all disabled:opacity-30 disabled:cursor-not-allowed active:scale-90"
+                  style={{ background: input.trim() && storeReady ? 'var(--accent)' : '#E2DED9', color: input.trim() && storeReady ? '#fff' : 'var(--muted)' }}
+                >
+                  <ArrowUp size={15} strokeWidth={2.5} />
+                </button>
+              </div>
+            </div>
           </div>
-          <button
-            onClick={handleSend}
-            disabled={!input.trim() || !storeReady || isTyping}
-            className="w-10 h-10 rounded-xl flex items-center justify-center text-white flex-shrink-0 transition-all disabled:opacity-30 disabled:cursor-not-allowed active:scale-95"
-            style={{ background: input.trim() && storeReady ? 'var(--accent)' : '#D1CEC9' }}
-          >
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2">
-              <path strokeLinecap="round" strokeLinejoin="round" d="M5 12h14M12 5l7 7-7 7"/>
-            </svg>
-          </button>
+
+          <p className="text-center text-[10px] mt-2" style={{ color: 'var(--muted)', opacity: 0.5 }}>
+            Answers sourced strictly from Route 66 guides
+          </p>
         </div>
-        <p className="max-w-3xl mx-auto mt-1.5 text-center text-[10px]" style={{ color: 'var(--text-muted)', opacity: 0.6 }}>
-          Enter to send · Shift+Enter for new line
-        </p>
       </div>
     </div>
   );
