@@ -30,21 +30,28 @@ export function Sidebar({
 
   const handleDragOver = (e: React.DragEvent) => { e.preventDefault(); if (storeReady) setIsDragging(true); };
   const handleDragLeave = (e: React.DragEvent) => { e.preventDefault(); setIsDragging(false); };
+  const [uploadProgress, setUploadProgress] = useState({ done: 0, total: 0 });
+
   const handleDrop = async (e: React.DragEvent) => {
     e.preventDefault(); setIsDragging(false);
     if (!storeReady) return;
-    const file = e.dataTransfer.files[0];
-    if (file) await handleFileUpload(file);
+    await handleFileUpload([...e.dataTransfer.files]);
   };
   const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) await handleFileUpload(file);
+    const files = e.target.files ? [...e.target.files] : [];
+    if (files.length) await handleFileUpload(files);
     if (fileInputRef.current) fileInputRef.current.value = '';
   };
-  const handleFileUpload = async (file: File) => {
-    try { setIsUploading(true); await onUploadFile(file); }
-    catch (err: any) { onError(err.message || 'Upload failed'); }
-    finally { setIsUploading(false); }
+  const handleFileUpload = async (files: File[]) => {
+    try {
+      setIsUploading(true);
+      setUploadProgress({ done: 0, total: files.length });
+      for (let i = 0; i < files.length; i++) {
+        await onUploadFile(files[i]);
+        setUploadProgress({ done: i + 1, total: files.length });
+      }
+    } catch (err: any) { onError(err.message || 'Upload failed'); }
+    finally { setIsUploading(false); setUploadProgress({ done: 0, total: 0 }); }
   };
 
   return (
@@ -132,9 +139,15 @@ export function Sidebar({
                 isDragging ? 'border-[#E8600A] bg-[#E8600A]/10' : 'border-white/15 hover:border-white/30'
               }`}
             >
-              <input type="file" ref={fileInputRef} onChange={handleFileSelect} className="hidden" />
+              <input type="file" ref={fileInputRef} onChange={handleFileSelect} className="hidden" multiple />
               <svg className="w-5 h-5 mx-auto mb-1 text-white/30" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"/></svg>
-              <p className="text-[11px] text-white/40">{isUploading ? 'Uploading…' : 'Click or drag to upload'}</p>
+              <p className="text-[11px] text-white/40">
+                {isUploading
+                  ? uploadProgress.total > 1
+                    ? `Uploading ${uploadProgress.done + 1} / ${uploadProgress.total}…`
+                    : 'Uploading…'
+                  : 'Click or drag files to upload'}
+              </p>
             </div>
             <FileList files={files} onDelete={onDeleteFile} storeReady={storeReady} />
             <IngestPanel storeReady={storeReady} onComplete={onIngestComplete} onError={onError} />

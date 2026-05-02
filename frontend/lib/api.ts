@@ -1,10 +1,9 @@
 export const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 
 export interface FileEntry {
-  name: string;
-  state: 'ACTIVE' | 'PENDING' | 'FAILED';
-  uri?: string;
-  error?: string;
+  name: string;        // full resource path e.g. fileSearchStores/xxx/documents/yyy
+  displayName?: string; // friendly filename
+  state: string;       // e.g. STATE_ACTIVE, STATE_PENDING, STATE_FAILED
 }
 
 export interface IngestStatus {

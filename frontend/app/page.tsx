@@ -41,11 +41,11 @@ export default function Home() {
           listFiles(),
           listConversations()
         ]);
-        setFiles(filesData?.files || []);
-        setConversations(convsData?.conversations || []);
-        
-        if (convsData?.conversations?.length > 0) {
-          setActiveConvId(convsData.conversations[0].id);
+        setFiles(filesData?.documents || filesData?.files || []);
+        setConversations(Array.isArray(convsData) ? convsData : []);
+
+        if (Array.isArray(convsData) && convsData.length > 0) {
+          setActiveConvId(convsData[0].id);
         }
       }
     } catch (err: any) {
@@ -63,7 +63,7 @@ export default function Home() {
   useEffect(() => {
     if (activeConvId) {
       getMessages(activeConvId)
-        .then(res => setMessages(res?.messages || []))
+        .then(res => setMessages(Array.isArray(res) ? res : []))
         .catch(err => addToast(err.message || 'Failed to load messages', 'error'));
     } else {
       setMessages([]);
@@ -77,7 +77,7 @@ export default function Home() {
       addToast('Knowledge store created successfully!', 'success');
       // Refresh files list
       const filesData = await listFiles();
-      setFiles(filesData?.files || []);
+      setFiles(filesData?.documents || filesData?.files || []);
     } catch (err: any) {
       addToast(err.message || 'Failed to create store', 'error');
     }
@@ -107,7 +107,7 @@ export default function Home() {
       await deleteFile(name);
       addToast(`File ${name} deleted`, 'info');
       const filesData = await listFiles();
-      setFiles(filesData?.files || []);
+      setFiles(filesData?.documents || filesData?.files || []);
     } catch (err: any) {
       addToast(err.message || 'Failed to delete file', 'error');
     }
@@ -170,14 +170,14 @@ export default function Home() {
       if (res.conversation_id && res.conversation_id !== currentConvId) {
         setActiveConvId(res.conversation_id);
         const convsData = await listConversations();
-        setConversations(convsData?.conversations || []);
+        setConversations(Array.isArray(convsData) ? convsData : []);
       }
 
       // Re-fetch messages or append
       const botMsg: Message = { 
         role: 'model', 
-        content: res.message, 
-        citations: res.citations 
+        content: res.response,
+        citations: res.citations
       };
       setMessages(prev => [...prev, botMsg]);
 
