@@ -152,7 +152,7 @@ async def delete_file(file_id: str):
         raise HTTPException(status_code=400, detail="No store exists")
     async with httpx.AsyncClient(timeout=30) as h:
         r = await h.delete(
-            f"{BASE}/v1beta/{cfg['name']}/documents/{file_id}",
+            f"{BASE}/v1beta/{cfg['name']}/documents/{file_id}?force=true",
             headers=api_headers(),
         )
         if r.status_code not in (200, 204):
