@@ -1,32 +1,21 @@
 import type { Metadata } from "next";
-import { Geist, Geist_Mono } from "next/font/google";
+import { Inter } from "next/font/google";
 import "./globals.css";
 
-const geistSans = Geist({
-  variable: "--font-geist-sans",
+const inter = Inter({
   subsets: ["latin"],
-});
-
-const geistMono = Geist_Mono({
-  variable: "--font-geist-mono",
-  subsets: ["latin"],
+  variable: "--font-inter",
+  display: "swap",
 });
 
 export const metadata: Metadata = {
-  title: "Route 66 AI Assistant",
-  description: "Ask anything about your Route 66 documents — powered by RAG.",
+  title: "Route 66 AI Assistant — europetrip.us",
+  description: "Ask anything about Route 66 — powered by our official guides.",
 };
 
-export default function RootLayout({
-  children,
-}: Readonly<{
-  children: React.ReactNode;
-}>) {
+export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html
-      lang="en"
-      className={`${geistSans.variable} ${geistMono.variable} dark h-screen antialiased`}
-    >
+    <html lang="en" className={`${inter.variable} h-screen`}>
       <body className="h-screen flex overflow-hidden">{children}</body>
     </html>
   );
