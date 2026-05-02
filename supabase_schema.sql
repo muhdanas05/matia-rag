@@ -1,3 +1,9 @@
+-- Store config (replaces local store_config.json)
+CREATE TABLE IF NOT EXISTS store_config (
+  key   TEXT PRIMARY KEY,
+  value TEXT NOT NULL
+);
+
 -- Conversation sessions
 CREATE TABLE IF NOT EXISTS conversations (
   id          UUID        DEFAULT gen_random_uuid() PRIMARY KEY,

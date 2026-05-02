@@ -1,5 +1,4 @@
 import os
-import json
 import mimetypes
 import httpx
 from pathlib import Path
@@ -14,12 +13,24 @@ load_dotenv()
 
 API_KEY = os.getenv("GEMINI_API", "").strip()
 BASE = "https://generativelanguage.googleapis.com"
-STORE_FILE = "store_config.json"
 MODEL = "gemini-3-flash-preview"
 
 SUPABASE_URL = os.getenv("SUPABASE_URL", "")
 SUPABASE_KEY = os.getenv("SUPABASE_SERVICE_KEY", "")
 sb: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
+
+
+def load_cfg() -> dict:
+    res = sb.table("store_config").select("key,value").execute()
+    return {r["key"]: r["value"] for r in res.data}
+
+
+def save_cfg(d: dict):
+    for key, value in d.items():
+        sb.table("store_config").upsert({"key": key, "value": value}).execute()
+    # If empty dict passed, clear all keys
+    if not d:
+        sb.table("store_config").delete().neq("key", "").execute()
 
 SUPPORTED_EXTS = {".pdf", ".md", ".txt", ".docx", ".xlsx", ".csv", ".json", ".html", ".xml"}
 
@@ -49,16 +60,6 @@ ingest_state: dict = {"total": 0, "done": 0, "failed": [], "current": "", "runni
 
 app = FastAPI()
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
-
-
-def load_cfg() -> dict:
-    if Path(STORE_FILE).exists():
-        return json.loads(Path(STORE_FILE).read_text())
-    return {}
-
-
-def save_cfg(d: dict):
-    Path(STORE_FILE).write_text(json.dumps(d))
 
 
 def api_headers() -> dict:
