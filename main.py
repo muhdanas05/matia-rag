@@ -13,7 +13,7 @@ load_dotenv()
 API_KEY = os.getenv("GEMINI_API", "").strip()
 BASE = "https://generativelanguage.googleapis.com"
 STORE_FILE = "store_config.json"
-MODEL = "gemini-2.0-flash"
+MODEL = "gemini-3-flash-preview"
 
 app = FastAPI()
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
@@ -137,7 +137,7 @@ async def list_files():
     if not cfg.get("name"):
         return {"files": []}
     async with httpx.AsyncClient(timeout=30) as h:
-        r = await h.get(f"{BASE}/v1beta/{cfg['name']}/files", headers=api_headers())
+        r = await h.get(f"{BASE}/v1beta/{cfg['name']}/documents", headers=api_headers())
         if r.status_code == 404:
             return {"files": []}
         if r.status_code != 200:
@@ -152,7 +152,7 @@ async def delete_file(file_id: str):
         raise HTTPException(status_code=400, detail="No store exists")
     async with httpx.AsyncClient(timeout=30) as h:
         r = await h.delete(
-            f"{BASE}/v1beta/{cfg['name']}/files/{file_id}",
+            f"{BASE}/v1beta/{cfg['name']}/documents/{file_id}",
             headers=api_headers(),
         )
         if r.status_code not in (200, 204):
@@ -188,7 +188,7 @@ async def chat(req: ChatRequest):
             headers=api_headers(),
             json={
                 "contents": contents,
-                "tools": [{"fileSearch": {"fileSearchStore": store}}],
+                "tools": [{"fileSearch": {"fileSearchStoreNames": [store]}}],
                 "systemInstruction": {
                     "parts": [{
                         "text": (
