@@ -1,9 +1,10 @@
 export const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 
 export interface FileEntry {
-  name: string;        // full resource path e.g. fileSearchStores/xxx/documents/yyy
-  displayName?: string; // friendly filename
-  state: string;       // e.g. STATE_ACTIVE, STATE_PENDING, STATE_FAILED
+  name: string;
+  state: 'ACTIVE' | 'PENDING' | 'FAILED';
+  uri?: string;
+  error?: string;
 }
 
 export interface IngestStatus {
@@ -101,8 +102,6 @@ export const getIngestStatus = () => fetchApi('/api/ingest-status');
 export const listConversations = () => fetchApi('/api/conversations');
 export const createConversation = () => fetchApi('/api/conversations', { method: 'POST' });
 export const deleteConversation = (id: string) => fetchApi(`/api/conversations/${id}`, { method: 'DELETE' });
-export const renameConversation = (id: string, title: string) =>
-  fetchApi(`/api/conversations/${id}`, { method: 'PATCH', body: JSON.stringify({ title }) });
 export const getMessages = (id: string) => fetchApi(`/api/conversations/${id}/messages`);
 
 // Chat API

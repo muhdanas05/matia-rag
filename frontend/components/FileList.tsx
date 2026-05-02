@@ -11,40 +11,45 @@ export function FileList({ files, onDelete, storeReady }: FileListProps) {
   if (!storeReady) return null;
 
   if (files.length === 0) {
-    return <p className="mt-3 text-xs text-white/25 italic">No files uploaded yet.</p>;
+    return (
+      <div className="mt-4 text-sm text-gray-500 italic">
+        No files uploaded yet.
+      </div>
+    );
   }
 
-  const getState = (raw: string) => raw.replace('STATE_', '');
-
-  const getBadgeStyle = (raw: string) => {
-    const s = getState(raw);
-    if (s === 'ACTIVE') return { background: 'rgba(34,197,94,0.15)', color: '#4ade80', border: '1px solid rgba(34,197,94,0.3)' };
-    if (s === 'FAILED') return { background: 'rgba(239,68,68,0.15)', color: '#f87171', border: '1px solid rgba(239,68,68,0.3)' };
-    return { background: 'rgba(234,179,8,0.15)', color: '#facc15', border: '1px solid rgba(234,179,8,0.3)' };
+  const getBadgeColor = (state: string) => {
+    switch (state) {
+      case 'ACTIVE': return 'bg-green-500/20 text-green-400 border-green-500/30';
+      case 'PENDING': return 'bg-yellow-500/20 text-yellow-400 border-yellow-500/30';
+      case 'FAILED': return 'bg-red-500/20 text-red-400 border-red-500/30';
+      default: return 'bg-gray-500/20 text-gray-400 border-gray-500/30';
+    }
   };
 
   return (
-    <div className="mt-3 space-y-1.5 max-h-48 overflow-y-auto">
-      {files.map((file) => {
-        const displayName = file.displayName || file.name?.split('/').pop() || 'Unknown';
-        const fileId = file.name?.split('/').pop() || file.name;
-        return (
-          <div key={file.name} className="flex items-center gap-2 px-2.5 py-2 rounded-lg group" style={{ background: 'rgba(255,255,255,0.05)' }}>
-            <span className="text-xs text-white/60 flex-1 truncate" title={displayName}>{displayName}</span>
-            <span className="text-[9px] font-bold uppercase px-1.5 py-0.5 rounded flex-shrink-0" style={getBadgeStyle(file.state)}>
-              {getState(file.state)}
+    <div className="mt-4 space-y-2 max-h-64 overflow-y-auto pr-2">
+      {files.map((file) => (
+        <div key={file.name} className="flex items-center justify-between p-2 rounded-md bg-[#21262d] border border-[#30363d] group">
+          <div className="flex flex-col flex-1 min-w-0 mr-3">
+            <span className="text-sm text-gray-200 truncate" title={file.name}>
+              {file.name}
             </span>
-            <button
-              onClick={() => onDelete(fileId)}
-              className="text-white/20 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-all flex-shrink-0"
-            >
-              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12"/>
-              </svg>
-            </button>
+            <span className={`text-[10px] uppercase font-semibold border px-1.5 py-0.5 rounded w-max mt-1 ${getBadgeColor(file.state)}`}>
+              {file.state}
+            </span>
           </div>
-        );
-      })}
+          <button
+            onClick={() => onDelete(file.name)}
+            className="text-gray-500 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-opacity focus:outline-none"
+            title="Delete file"
+          >
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+            </svg>
+          </button>
+        </div>
+      ))}
     </div>
   );
 }
