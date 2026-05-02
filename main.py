@@ -8,6 +8,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from dotenv import load_dotenv
+from supabase import create_client, Client
 
 load_dotenv()
 
@@ -15,6 +16,10 @@ API_KEY = os.getenv("GEMINI_API", "").strip()
 BASE = "https://generativelanguage.googleapis.com"
 STORE_FILE = "store_config.json"
 MODEL = "gemini-3-flash-preview"
+
+SUPABASE_URL = os.getenv("SUPABASE_URL", "")
+SUPABASE_KEY = os.getenv("SUPABASE_SERVICE_KEY", "")
+sb: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 SUPPORTED_EXTS = {".pdf", ".md", ".txt", ".docx", ".xlsx", ".csv", ".json", ".html", ".xml"}
 
@@ -256,11 +261,46 @@ async def delete_file(file_id: str):
     return {"deleted": True}
 
 
+# ── Conversations (Supabase) ───────────────────────────────────────────────────
+
+@app.get("/api/conversations")
+async def list_conversations():
+    res = sb.table("conversations").select("id,title,updated_at").order("updated_at", desc=True).limit(50).execute()
+    return res.data
+
+
+@app.post("/api/conversations")
+async def create_conversation():
+    res = sb.table("conversations").insert({"title": "New conversation"}).execute()
+    return res.data[0]
+
+
+@app.patch("/api/conversations/{conv_id}")
+async def rename_conversation(conv_id: str, body: dict):
+    title = body.get("title", "").strip()
+    if not title:
+        raise HTTPException(status_code=400, detail="Title required")
+    res = sb.table("conversations").update({"title": title}).eq("id", conv_id).execute()
+    return res.data[0] if res.data else {}
+
+
+@app.delete("/api/conversations/{conv_id}")
+async def delete_conversation(conv_id: str):
+    sb.table("conversations").delete().eq("id", conv_id).execute()
+    return {"deleted": True}
+
+
+@app.get("/api/conversations/{conv_id}/messages")
+async def get_messages(conv_id: str):
+    res = sb.table("messages").select("*").eq("conversation_id", conv_id).order("created_at").execute()
+    return res.data
+
+
 # ── Chat ───────────────────────────────────────────────────────────────────────
 
 class ChatRequest(BaseModel):
     message: str
-    history: list = []
+    conversation_id: str | None = None
 
 
 @app.post("/api/chat")
@@ -270,10 +310,17 @@ async def chat(req: ChatRequest):
         raise HTTPException(status_code=400, detail="Create a store and upload files first")
 
     store = cfg["name"]
-    contents = [
-        {"role": m["role"], "parts": [{"text": m["content"]}]}
-        for m in req.history
-    ]
+
+    # Load or create conversation
+    if req.conversation_id:
+        conv_id = req.conversation_id
+    else:
+        res = sb.table("conversations").insert({"title": req.message[:60]}).execute()
+        conv_id = res.data[0]["id"]
+
+    # Load history from Supabase
+    history_res = sb.table("messages").select("role,content").eq("conversation_id", conv_id).order("created_at").execute()
+    contents = [{"role": m["role"], "parts": [{"text": m["content"]}]} for m in history_res.data]
     contents.append({"role": "user", "parts": [{"text": req.message}]})
 
     async with httpx.AsyncClient(timeout=60) as h:
@@ -292,13 +339,11 @@ async def chat(req: ChatRequest):
         d = r.json()
         candidate = d.get("candidates", [{}])[0]
 
-        # Extract answer text
         try:
             text = candidate["content"]["parts"][0]["text"]
         except (KeyError, IndexError):
             text = "No response generated."
 
-        # Extract citations from groundingMetadata
         citations = []
         grounding = candidate.get("groundingMetadata", {})
         for chunk in grounding.get("groundingChunks", []):
@@ -308,7 +353,13 @@ async def chat(req: ChatRequest):
             if title or snippet:
                 citations.append({"source": title, "snippet": snippet})
 
-        return {"response": text, "citations": citations}
+        # Persist both messages to Supabase
+        sb.table("messages").insert([
+            {"conversation_id": conv_id, "role": "user",  "content": req.message, "citations": []},
+            {"conversation_id": conv_id, "role": "model", "content": text, "citations": citations},
+        ]).execute()
+
+        return {"response": text, "citations": citations, "conversation_id": conv_id}
 
 
 # ── Static UI ──────────────────────────────────────────────────────────────────
