@@ -99,7 +99,33 @@ app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], all
 # Version endpoint — used to confirm Railway has the latest deployment
 @app.get("/api/version")
 async def version():
-    return {"version": "2.1", "features": ["kb-search", "web-search", "system-prompt-editor"]}
+    return {"version": "2.2", "features": ["kb-search", "web-search", "system-prompt-editor"]}
+
+
+class SystemPromptRequest(BaseModel):
+    prompt: str
+
+@app.get("/api/system-prompt")
+async def get_system_prompt():
+    """Return the currently active system prompt (custom or default)."""
+    cfg = load_cfg()
+    return {"prompt": cfg.get("system_prompt", STRICT_SYSTEM_PROMPT)}
+
+@app.post("/api/system-prompt")
+async def set_system_prompt(req: SystemPromptRequest):
+    """Save a custom system prompt to the DB. Takes effect immediately on next /api/chat call."""
+    if not req.prompt or len(req.prompt.strip()) < 20:
+        raise HTTPException(status_code=400, detail="Prompt is too short")
+    save_cfg({"system_prompt": req.prompt.strip()})
+    return {"status": "saved", "prompt": req.prompt.strip()}
+
+@app.delete("/api/system-prompt")
+async def reset_system_prompt():
+    """Reset system prompt to the built-in default."""
+    cfg = load_cfg()
+    if "system_prompt" in cfg:
+        sb.table("store_config").delete().eq("key", "system_prompt").execute()
+    return {"status": "reset", "prompt": STRICT_SYSTEM_PROMPT}
 
 
 def api_headers() -> dict:
@@ -370,13 +396,15 @@ async def chat(req: ChatRequest):
     contents.append({"role": "user", "parts": [{"text": req.message}]})
 
     async with httpx.AsyncClient(timeout=60) as h:
+        # Use custom system prompt from DB if set, otherwise fall back to default
+        active_prompt = cfg.get("system_prompt", STRICT_SYSTEM_PROMPT)
         r = await h.post(
             f"{BASE}/v1beta/models/{MODEL}:generateContent",
             headers=api_headers(),
             json={
                 "contents": contents,
                 "tools": [{"fileSearch": {"fileSearchStoreNames": [store]}}],
-                "systemInstruction": {"parts": [{"text": STRICT_SYSTEM_PROMPT}]},
+                "systemInstruction": {"parts": [{"text": active_prompt}]},
             },
         )
         if r.status_code != 200:

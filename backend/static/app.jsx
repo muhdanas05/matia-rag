@@ -690,9 +690,19 @@ function SettingsView({ onSettings }) {
   const [uploading, setUploading] = useState(false);
   const [folderPath, setFolderPath] = useState('');
   const [ingestStatus, setIngestStatus] = useState(null);
-  const [promptText, setPromptText] = useState(() => localStorage.getItem('europetrip_system_prompt') || DEFAULT_SYSTEM_PROMPT);
+  const [promptText, setPromptText] = useState(DEFAULT_SYSTEM_PROMPT);
   const [promptSaved, setPromptSaved] = useState(false);
+  const [promptLoading, setPromptLoading] = useState(true);
   const [activeTab, setActiveTab] = useState('kb'); // 'kb' | 'prompt'
+
+  // Load active prompt from backend
+  useEffect(() => {
+    fetch(`${API_URL}/api/system-prompt`)
+      .then(r => r.json())
+      .then(d => { setPromptText(d.prompt || DEFAULT_SYSTEM_PROMPT); })
+      .catch(() => { setPromptText(DEFAULT_SYSTEM_PROMPT); })
+      .finally(() => setPromptLoading(false));
+  }, []);
 
   const loadFiles = async () => {
     try {
@@ -758,15 +768,29 @@ function SettingsView({ onSettings }) {
     }
   };
 
-  const savePrompt = () => {
-    localStorage.setItem('europetrip_system_prompt', promptText);
-    setPromptSaved(true);
-    setTimeout(() => setPromptSaved(false), 2000);
+  const savePrompt = async () => {
+    try {
+      const res = await fetch(`${API_URL}/api/system-prompt`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ prompt: promptText }),
+      });
+      if (res.ok) {
+        setPromptSaved(true);
+        setTimeout(() => setPromptSaved(false), 2000);
+      }
+    } catch (e) {
+      console.error('Failed to save prompt:', e);
+    }
   };
 
-  const resetPrompt = () => {
-    setPromptText(DEFAULT_SYSTEM_PROMPT);
-    localStorage.setItem('europetrip_system_prompt', DEFAULT_SYSTEM_PROMPT);
+  const resetPrompt = async () => {
+    try {
+      await fetch(`${API_URL}/api/system-prompt`, { method: 'DELETE' });
+      setPromptText(DEFAULT_SYSTEM_PROMPT);
+    } catch (e) {
+      setPromptText(DEFAULT_SYSTEM_PROMPT);
+    }
   };
 
   const tabStyle = (active) => ({
@@ -922,8 +946,8 @@ function SettingsView({ onSettings }) {
                   </div>
                 ))}
               </div>
-              <div style={{ marginTop: 12, padding: '10px 12px', background: '#fffbea', border: '1px solid #ffe58f', borderRadius: 8, fontSize: 11.5, color: '#7a6200', lineHeight: 1.5 }}>
-                ⚠️ <strong>Note:</strong> Variables are injected at query time by the frontend. The backend uses Gemini's built-in system instruction field — so any variables here are for your reference on how the AI is being instructed. The <code>{'{{retrieved_context}}'}</code> and <code>{'{{conversation_history}}'}</code> are automatically handled by Gemini's RAG pipeline.
+              <div style={{ marginTop: 12, padding: '10px 12px', background: '#eefcf1', border: '1px solid #c6f6d5', borderRadius: 8, fontSize: 11.5, color: '#22543d', lineHeight: 1.5 }}>
+                ✅ <strong>Tip:</strong> Changes are saved to the backend database and take effect instantly on the next message. You do <strong>not</strong> need to manually add variables like <code>{'{{retrieved_context}}'}</code>; the RAG engine automatically merges your documents and chat history into your custom instructions.
               </div>
             </div>
           </div>
