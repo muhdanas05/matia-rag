@@ -1,7 +1,41 @@
 // Europetrip.us — AI Assistant prototype
 // Original design inspired by common chat-assistant layouts (dark sidebar, light main, mint accent)
 
-const { useState, useRef, useEffect } = React;
+const { useState, useRef, useEffect, Component } = React;
+
+/* ---------- Error Boundary ---------- */
+class ErrorBoundary extends Component {
+  constructor(props) {
+    super(props);
+    this.state = { hasError: false, error: null };
+  }
+  static getDerivedStateFromError(error) {
+    return { hasError: true, error };
+  }
+  componentDidCatch(error, info) {
+    console.error('App crashed:', error, info);
+  }
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div style={{
+          width: '100vw', height: '100vh', display: 'flex', flexDirection: 'column',
+          alignItems: 'center', justifyContent: 'center',
+          fontFamily: 'system-ui, sans-serif', background: '#f7f7f5', color: '#1a1b1e',
+        }}>
+          <div style={{ fontSize: 32, marginBottom: 12 }}>⚠️</div>
+          <div style={{ fontWeight: 600, fontSize: 16, marginBottom: 8 }}>Something went wrong</div>
+          <div style={{ fontSize: 13, color: '#6b6d72', marginBottom: 20 }}>The app encountered an error. Try refreshing.</div>
+          <button onClick={() => window.location.reload()} style={{
+            padding: '10px 24px', borderRadius: 12, border: 'none',
+            background: '#cdf373', color: '#1a1b1e', fontWeight: 600, cursor: 'pointer', fontSize: 14,
+          }}>Refresh</button>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
 
 /* ---------- Tokens ---------- */
 const T = {
@@ -542,7 +576,7 @@ function Message({ m }) {
             <div 
               className="md-content" 
               style={{ wordBreak: 'break-word' }}
-              dangerouslySetInnerHTML={{ __html: window.marked ? window.marked.parse(m.text) : m.text }}
+              dangerouslySetInnerHTML={{ __html: window.marked ? window.marked.parse(m.text || '') : (m.text || '') }}
             />
           )}
         </div>
@@ -982,11 +1016,14 @@ function App() {
   }, [activeConv]);
 
   const NOT_FOUND_PATTERNS = ['not found', "isn't covered", 'not covered', 'not in our', 'not available in'];
-  const isNotFoundResponse = (text) => NOT_FOUND_PATTERNS.some(p => text.toLowerCase().includes(p));
+  const isNotFoundResponse = (text) => {
+    if (!text || typeof text !== 'string') return false;
+    return NOT_FOUND_PATTERNS.some(p => text.toLowerCase().includes(p));
+  };
 
   const send = async (explicitText) => {
     const text = typeof explicitText === 'string' ? explicitText.trim() : draft.trim();
-    if (!text) return;
+    if (!text || isLoading) return;
     setDraft('');
     setView('chat');
     setSearchSteps([]);
@@ -1007,9 +1044,19 @@ function App() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ message: text, conversation_id: activeConv })
       });
+      
+      if (!res.ok) {
+        console.error(`KB Search failed: ${res.status}`);
+        setMessages(prev => [...prev, {
+          id: Date.now() + 1, from: 'ai', kind: 'text',
+          text: 'Could not reach the knowledge base right now. Please try again.',
+          time: nowTime()
+        }]);
+        return;
+      }
       const data = await res.json();
 
-      if (!activeConv) {
+      if (!activeConv && data.conversation_id) {
         setActiveConv(data.conversation_id);
         loadConversations();
       }
@@ -1024,33 +1071,46 @@ function App() {
         await new Promise(r => setTimeout(r, 300));
         pushStep('Reading web sources...');
 
-        const webRes = await fetch(`${API_URL}/api/web-search`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ message: text, conversation_id: data.conversation_id })
-        });
-        const webData = await webRes.json();
-        pushStep('Synthesising answer...');
-        await new Promise(r => setTimeout(r, 200));
-
-        setMessages(prev => [...prev, {
-          id: Date.now() + 1, from: 'ai', kind: 'text',
-          text: webData.response,
-          citations: webData.citations || [],
-          time: nowTime(), tools: true, source: 'web',
-        }]);
+        try {
+          const webRes = await fetch(`${API_URL}/api/web-search`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ message: text, conversation_id: data.conversation_id || activeConv })
+          });
+          const webData = webRes.ok ? await webRes.json() : null;
+          pushStep('Synthesising answer...');
+          await new Promise(r => setTimeout(r, 200));
+          setMessages(prev => [...prev, {
+            id: Date.now() + 1, from: 'ai', kind: 'text',
+            text: (webData && webData.response) ? webData.response : "Couldn't find this online either. Try checking Google directly.",
+            citations: (webData && webData.citations) || [],
+            time: nowTime(), tools: true, source: 'web',
+          }]);
+        } catch (webErr) {
+          console.error('Web search error:', webErr);
+          setMessages(prev => [...prev, {
+            id: Date.now() + 1, from: 'ai', kind: 'text',
+            text: "Web search is temporarily unavailable. Please try again shortly.",
+            time: nowTime(), tools: true,
+          }]);
+        }
       } else {
         pushStep('Found relevant information!');
         await new Promise(r => setTimeout(r, 200));
         setMessages(prev => [...prev, {
           id: Date.now() + 1, from: 'ai', kind: 'text',
-          text: data.response,
+          text: data.response || "No response found.",
           citations: data.citations || [],
           time: nowTime(), tools: true, source: 'kb',
         }]);
       }
     } catch (e) {
       console.error(e);
+      setMessages(prev => [...prev, {
+        id: Date.now() + 1, from: 'ai', kind: 'text',
+        text: "I encountered an error while processing your request. Please try again later.",
+        time: nowTime()
+      }]);
     } finally {
       setIsLoading(false);
       setSearchPhase(null);
@@ -1085,7 +1145,7 @@ function App() {
       <main style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column' }}>
         {view === 'home' && <HomeView onPick={pickPrompt} draft={draft} setDraft={setDraft} onSend={send} onSettings={() => setView('settings')} />}
         {view === 'chat' && <ChatView messages={messages} draft={draft} setDraft={setDraft} onSend={send} isLoading={isLoading} searchPhase={searchPhase} searchSteps={searchSteps} onSettings={() => setView('settings')} />}
-        {view === 'settings' && <SettingsView onSettings={() => setView('settings')} />}
+        {view === 'settings' && <SettingsView onSettings={() => setView(activeConv ? 'chat' : 'home')} />}
       </main>
     </div>
   );

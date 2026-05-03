@@ -101,9 +101,11 @@
 <script type="text/babel">
 function Root() {
   return (
-    <div style={{ width: '100%', height: '100%', display: 'flex' }}>
-      <App />
-    </div>
+    <ErrorBoundary>
+      <div style={{ width: '100%', height: '100%', display: 'flex' }}>
+        <App />
+      </div>
+    </ErrorBoundary>
   );
 }
 
