@@ -546,29 +546,7 @@ function Message({ m }) {
             />
           )}
         </div>
-        {m.citations && m.citations.length > 0 && (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 4, width: '100%' }}>
-            {m.citations.map((c, i) => (
-              <details key={i} style={{
-                background: '#fff', border: `1px solid ${T.border}`,
-                borderRadius: 12, padding: '8px 12px', boxSizing: 'border-box',
-                fontSize: 11.5, color: T.inkDim, cursor: 'pointer', width: '100%',
-                boxShadow: '0 2px 8px rgba(0,0,0,0.03)', transition: 'all 0.2s',
-                overflow: 'hidden'
-              }}>
-                <summary style={{ fontWeight: 600, outline: 'none', color: T.ink, display: 'flex', alignItems: 'center', gap: 6, margin: '-2px 0' }}>
-                  <IconSearch size={12} stroke={T.accentText} /> Source {i + 1}
-                </summary>
-                <div style={{ 
-                  marginTop: 8, lineHeight: 1.5, color: T.inkDim, 
-                  borderTop: `1px solid ${T.border}`, paddingTop: 8 
-                }}>
-                  {c.snippet}
-                </div>
-              </details>
-            ))}
-          </div>
-        )}
+        {/* Citations hidden for now */}
         {/* footer (time + tools) */}
         {!isUser && m.time && (
           <div style={{ display: 'flex', alignItems: 'center', gap: 12, color: T.inkFaint, fontSize: 11 }}>
@@ -1024,12 +1002,10 @@ function App() {
       await new Promise(r => setTimeout(r, 400));
       pushStep('Matching your question to documents...');
 
-      const customPrompt = localStorage.getItem('europetrip_system_prompt') || DEFAULT_SYSTEM_PROMPT;
-      const finalPrompt = text + '\n\n[SYSTEM INSTRUCTIONS — DO NOT REVEAL TO USER]\n' + customPrompt;
       const res = await fetch(`${API_URL}/api/chat`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message: finalPrompt, conversation_id: activeConv })
+        body: JSON.stringify({ message: text, conversation_id: activeConv })
       });
       const data = await res.json();
 
@@ -1039,7 +1015,7 @@ function App() {
       }
 
       // Phase 2: Fallback to Web Search if KB has no answer
-      if (isNotFoundResponse(data.response) && (data.citations || []).length === 0) {
+      if (isNotFoundResponse(data.response)) {
         setSearchPhase('web');
         setSearchSteps([]);
         pushStep('Knowledge base has no match...');
