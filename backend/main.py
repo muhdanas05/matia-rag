@@ -486,7 +486,7 @@ async def suggest_followups(req: SuggestRequest):
     )
     async with httpx.AsyncClient(timeout=15) as h:
         r = await h.post(
-            f"{BASE}/v1beta/models/gemini-2.0-flash-lite:generateContent",
+            f"{BASE}/v1beta/models/{MODEL}:generateContent",
             headers=api_headers(),
             json={
                 "contents": [{"role": "user", "parts": [{"text": prompt}]}],
