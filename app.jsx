@@ -338,7 +338,8 @@ function Composer({ value, onChange, onSend, isMobile }) {
   }, [phText, isDeleting, phIdx, value]);
 
   return (
-    <div style={{ padding: isMobile ? '10px 12px 16px' : '14px 28px 22px' }}>
+    /* safe-bottom class adds env(safe-area-inset-bottom) padding for iPhone home bar */
+    <div className="safe-bottom" style={{ padding: isMobile ? '10px 12px 8px' : '14px 28px 22px', flexShrink: 0 }}>
       <div style={{
         display: 'flex', alignItems: 'center', gap: 10,
         background: T.bgSoft, borderRadius: 30, padding: '8px 8px 8px 8px',
@@ -360,7 +361,8 @@ function Composer({ value, onChange, onSend, isMobile }) {
           onKeyDown={e => { if (e.key === 'Enter') onSend(); }}
           style={{
             flex: 1, border: 0, outline: 'none', background: 'transparent',
-            fontSize: 14, color: T.ink, padding: '0 12px',
+            /* 16px prevents iOS Safari from auto-zooming the page when the input is tapped */
+            fontSize: isMobile ? 16 : 14, color: T.ink, padding: '0 12px',
             fontFamily: 'inherit',
           }}
         />
@@ -393,9 +395,19 @@ function HomeView({ onPick, draft, setDraft, onSend, onSettings, onMenuOpen, isM
     : 'repeat(4, minmax(0, 1fr))';
 
   return (
-    <div className="slide-up" style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+    <div className="slide-up" style={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0 }}>
       <TopBar title="Europe" titleAccent="trip.us" onSettings={onSettings} onMenuOpen={onMenuOpen} isMobile={isMobile} />
-      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: isMobile ? '0 16px' : '0 32px', overflowY: 'auto' }}>
+      {/*
+        On mobile: justifyContent flex-start + paddingTop so content starts at top of scroll area.
+        justify-content:center in an overflow container hides content ABOVE centre — you can't scroll up to it.
+        On desktop: centre is fine because content fits comfortably.
+      */}
+      <div style={{
+        flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center',
+        justifyContent: isMobile ? 'flex-start' : 'center',
+        padding: isMobile ? '24px 16px 0' : '0 32px',
+        overflowY: 'auto', overflowX: 'hidden',
+      }}>
         <div style={{
           width: 60, height: 60, borderRadius: 14,
           background: 'linear-gradient(135deg,#1d1e22,#3a3c44)',
@@ -534,10 +546,11 @@ function ChatView({ messages, draft, setDraft, onSend, isLoading, searchPhase, s
   }, [messages.length, isLoading]);
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0 }}>
       <TopBar title="Europe" titleAccent="trip.us" onSettings={onSettings} onMenuOpen={onMenuOpen} isMobile={isMobile} />
       <div ref={scrollRef} style={{
-        flex: 1, overflowY: 'auto', padding: isMobile ? '8px 12px 8px' : '8px 28px 8px',
+        flex: 1, overflowY: 'auto', overflowX: 'hidden', padding: isMobile ? '8px 12px 8px' : '8px 28px 8px',
+        minHeight: 0,
       }}>
         <div style={{ maxWidth: 760, margin: '0 auto', display: 'flex', flexDirection: 'column', gap: 22, paddingBottom: 40 }}>
           {messages.map(m => <div key={m.id} className="message-block"><Message m={m} isMobile={isMobile} /></div>)}
@@ -1237,6 +1250,8 @@ function App() {
       display: 'flex', background: '#fff',
       fontFamily: '-apple-system, "SF Pro Text", "Inter", system-ui, sans-serif',
       color: T.ink, overflow: 'hidden',
+      /* Ensure the flex root itself never exceeds the viewport on mobile */
+      maxHeight: '100%',
     }}>
       <style>{animStyle}</style>
 
@@ -1268,7 +1283,7 @@ function App() {
           } catch(e) { console.error(e); }
         }}
       />
-      <main style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column' }}>
+      <main style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden', minHeight: 0 }}>
         {view === 'home' && <HomeView onPick={pickPrompt} draft={draft} setDraft={setDraft} onSend={send} onSettings={() => setView('settings')} onMenuOpen={handleMenuOpen} isMobile={isMobile} />}
         {view === 'chat' && <ChatView messages={messages} draft={draft} setDraft={setDraft} onSend={send} isLoading={isLoading} searchPhase={searchPhase} searchSteps={searchSteps} onSettings={() => setView('settings')} suggestions={suggestions} onMenuOpen={handleMenuOpen} isMobile={isMobile} />}
         {view === 'settings' && <SettingsView onSettings={() => setView(activeConv ? 'chat' : 'home')} isMobile={isMobile} onMenuOpen={handleMenuOpen} />}
