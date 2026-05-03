@@ -1022,11 +1022,7 @@ function App() {
   const [searchPhase, setSearchPhase] = useState(null); // 'kb' | 'web' | null
   const [searchSteps, setSearchSteps] = useState([]);
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  const [suggestions, setSuggestions] = useState([
-    'Tell me more details',
-    'Can you put that in a table?',
-    'Give me a step-by-step roadmap',
-  ]);
+  const suggestions = ['Tell me more details', 'Can you put that in a table?', 'Give me a step-by-step roadmap'];
 
   // Tracks the current conversation ID for API calls without triggering effects
   const currentConvIdRef = useRef(null);
@@ -1101,25 +1097,7 @@ function App() {
     return NOT_FOUND_PATTERNS.some(p => text.toLowerCase().includes(p));
   };
 
-  const fetchSuggestions = async (userMsg, aiResponse) => {
-    try {
-      const res = await fetch(`${API_URL}/api/suggest`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message: userMsg, response: aiResponse }),
-      });
-      if (res.ok) {
-        const data = await res.json();
-        if (data.suggestions && data.suggestions.length >= 1) {
-          setSuggestions(data.suggestions.slice(0, 3));
-        }
-      }
-    } catch (e) {
-      // Keep current suggestions on failure
-    }
-  };
-
-  const send = async (explicitText) => {
+const send = async (explicitText) => {
     const text = typeof explicitText === 'string' ? explicitText.trim() : draft.trim();
     if (!text || isLoading) return;
     setDraft('');
@@ -1194,7 +1172,6 @@ function App() {
             citations: (webData && webData.citations) || [],
             time: nowTime(), tools: true, source: 'web',
           }]);
-          fetchSuggestions(text, webResponseText);
         } catch (webErr) {
           console.error('Web search error:', webErr);
           const errText = "Web search is unavailable right now. The knowledge base also didn't have an answer for this. Please try Google directly.";
@@ -1203,7 +1180,6 @@ function App() {
             text: errText,
             time: nowTime(), tools: true,
           }]);
-          fetchSuggestions(text, errText);
         }
       } else {
         pushStep('Found relevant information!');
@@ -1214,7 +1190,6 @@ function App() {
           citations: data.citations || [],
           time: nowTime(), tools: true, source: 'kb',
         }]);
-        fetchSuggestions(text, data.response || '');
       }
     } catch (e) {
       console.error(e);
