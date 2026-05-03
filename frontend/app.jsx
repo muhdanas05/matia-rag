@@ -1056,10 +1056,7 @@ function App() {
       }
       const data = await res.json();
 
-      if (!activeConv && data.conversation_id) {
-        setActiveConv(data.conversation_id);
-        loadConversations();
-      }
+      // Note: activeConv is set at the end to prevent loadMessages from triggering mid-search
 
       // Phase 2: Fallback to Web Search if KB has no answer
       if (isNotFoundResponse(data.response)) {
@@ -1085,6 +1082,7 @@ function App() {
             text: (webData && webData.response) ? webData.response : "Couldn't find this online either. Try checking Google directly.",
             citations: (webData && webData.citations) || [],
             time: nowTime(), tools: true, source: 'web',
+            conversation_id: webData?.conversation_id || data.conversation_id || activeConv
           }]);
         } catch (webErr) {
           console.error('Web search error:', webErr);
@@ -1102,6 +1100,7 @@ function App() {
           text: data.response || "No response found.",
           citations: data.citations || [],
           time: nowTime(), tools: true, source: 'kb',
+          conversation_id: data.conversation_id || activeConv
         }]);
       }
     } catch (e) {
@@ -1115,6 +1114,17 @@ function App() {
       setIsLoading(false);
       setSearchPhase(null);
       setSearchSteps([]);
+      
+      // Now that everything is done, set the active conversation to trigger sidebar sync
+      // if it wasn't already set.
+      if (!activeConv && messages.length > 0) {
+        // We need to find the conversation_id from the last AI message
+        const lastAi = messages.find(m => m.from === 'ai' && m.conversation_id);
+        if (lastAi && lastAi.conversation_id) {
+          setActiveConv(lastAi.conversation_id);
+          loadConversations();
+        }
+      }
     }
   };
 

@@ -96,6 +96,11 @@ ingest_state: dict = {"total": 0, "done": 0, "failed": [], "current": "", "runni
 app = FastAPI()
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
+# Version endpoint — used to confirm Railway has the latest deployment
+@app.get("/api/version")
+async def version():
+    return {"version": "2.1", "features": ["kb-search", "web-search", "system-prompt-editor"]}
+
 
 def api_headers() -> dict:
     return {"x-goog-api-key": API_KEY, "Content-Type": "application/json"}
@@ -404,11 +409,20 @@ async def chat(req: ChatRequest):
             if uri or title:
                 citations.append({"source": f"Web: {title}", "snippet": uri})
 
-        # Persist both messages to Supabase
-        sb.table("messages").insert([
-            {"conversation_id": conv_id, "role": "user",  "content": req.message, "citations": []},
-            {"conversation_id": conv_id, "role": "model", "content": text, "citations": citations},
-        ]).execute()
+        # Persist to Supabase ONLY if it's a real answer (not a fallback)
+        NOT_FOUND_PHRASES = ["not found", "isn't covered", "not covered", "not in our", "not available in"]
+        is_fallback = any(p in text.lower() for p in NOT_FOUND_PHRASES)
+
+        if not is_fallback:
+            sb.table("messages").insert([
+                {"conversation_id": conv_id, "role": "user",  "content": req.message, "citations": []},
+                {"conversation_id": conv_id, "role": "model", "content": text, "citations": citations},
+            ]).execute()
+        else:
+            # If fallback, still save user message so conversation is created/updated, but skip model fallback text
+            sb.table("messages").insert([
+                {"conversation_id": conv_id, "role": "user",  "content": req.message, "citations": []},
+            ]).execute()
 
         return {"response": text, "citations": citations, "conversation_id": conv_id}
 
