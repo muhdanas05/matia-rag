@@ -13,7 +13,7 @@ load_dotenv()
 
 API_KEY = os.getenv("GEMINI_API", "").strip()
 BASE = "https://generativelanguage.googleapis.com"
-MODEL = "gemini-3-flash-preview"
+MODEL = "gemini-2.5-flash"
 
 SUPABASE_URL = os.getenv("SUPABASE_URL", "")
 SUPABASE_KEY = os.getenv("SUPABASE_SERVICE_KEY", "")
