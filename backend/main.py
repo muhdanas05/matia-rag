@@ -469,6 +469,44 @@ RULES:
 - If web search also yields nothing useful, say: "We couldn't find reliable information on this online either. Please check Google Maps or TripAdvisor directly."
 """
 
+class SuggestRequest(BaseModel):
+    message: str
+    response: str
+
+@app.post("/api/suggest")
+async def suggest_followups(req: SuggestRequest):
+    """Generate 3 contextual follow-up questions based on the last conversation turn."""
+    import json, re
+    prompt = (
+        "Based on this Q&A about Route 66 travel:\n\n"
+        f"Question: {req.message[:300]}\n"
+        f"Answer: {req.response[:600]}\n\n"
+        "Generate exactly 3 short, natural follow-up questions the user might ask next. "
+        "Output ONLY a JSON array of 3 strings. Example: [\"q1?\", \"q2?\", \"q3?\"]"
+    )
+    async with httpx.AsyncClient(timeout=15) as h:
+        r = await h.post(
+            f"{BASE}/v1beta/models/gemini-2.0-flash-lite:generateContent",
+            headers=api_headers(),
+            json={
+                "contents": [{"role": "user", "parts": [{"text": prompt}]}],
+                "generationConfig": {"maxOutputTokens": 150, "temperature": 0.7},
+            },
+        )
+        if r.status_code != 200:
+            return {"suggestions": []}
+        d = r.json()
+        try:
+            text = d["candidates"][0]["content"]["parts"][0]["text"].strip()
+            match = re.search(r'\[.*?\]', text, re.DOTALL)
+            if match:
+                suggestions = json.loads(match.group())
+                return {"suggestions": [str(s) for s in suggestions[:3]]}
+        except Exception:
+            pass
+    return {"suggestions": []}
+
+
 @app.post("/api/web-search")
 async def web_search_endpoint(req: ChatRequest):
     """Web search using Gemini + Google Search grounding. Saves only model response (user already saved by /api/chat)."""

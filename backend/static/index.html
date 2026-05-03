@@ -86,6 +86,28 @@
   .md-content pre { background: #1a1b1e; color: #e7e8ea; padding: 16px; border-radius: 12px; overflow-x: auto; font-family: monospace; font-size: 12.5px; box-shadow: inset 0 2px 8px rgba(0,0,0,0.2); }
   .md-content code { background: #f0f0f0; padding: 2px 6px; border-radius: 4px; font-family: monospace; font-size: 12px; color: #dc4a3a; }
   .md-content pre code { background: transparent; padding: 0; color: inherit; }
+
+  /* Italic & emphasis */
+  .md-content em { font-style: italic; color: #5a5c63; }
+
+  /* Strikethrough */
+  .md-content del { text-decoration: line-through; color: #a0a2a8; }
+
+  /* Additional heading sizes */
+  .md-content h4 { font-size: 13.5px; font-weight: 600; margin: 18px 0 8px; color: #1a1b1e; }
+  .md-content h5 { font-size: 12.5px; font-weight: 600; margin: 14px 0 6px; color: #6b6d72; text-transform: uppercase; letter-spacing: 0.5px; }
+
+  /* Horizontal rule */
+  .md-content hr { border: none; border-top: 1.5px solid #e0ffa0; margin: 20px 0; border-radius: 2px; }
+
+  /* Paragraphs inside md-content */
+  .md-content p { margin: 10px 0; }
+
+  /* Nested list support */
+  .md-content ul ul, .md-content ol ol, .md-content ul ol, .md-content ol ul { margin: 6px 0 6px 16px; }
+
+  /* Table overflow on mobile */
+  .md-content table { display: block; overflow-x: auto; }
 </style>
 </head>
 <body>
@@ -95,6 +117,12 @@
 <script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" crossorigin="anonymous"></script>
 <script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" crossorigin="anonymous"></script>
 <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+<script>
+  // Configure marked.js for full GFM support (tables, strikethrough, task lists, line breaks)
+  if (window.marked) {
+    marked.use({ gfm: true, breaks: true });
+  }
+</script>
 
 <script type="text/babel" src="app.jsx"></script>
 

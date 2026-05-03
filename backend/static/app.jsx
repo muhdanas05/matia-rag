@@ -90,6 +90,17 @@ function BrandMark({ size = 22, color = '#fff' }) {
   );
 }
 
+/* ---------- Responsive width hook ---------- */
+function useWindowWidth() {
+  const [width, setWidth] = useState(window.innerWidth);
+  useEffect(() => {
+    const handle = () => setWidth(window.innerWidth);
+    window.addEventListener('resize', handle);
+    return () => window.removeEventListener('resize', handle);
+  }, []);
+  return width;
+}
+
 /* ---------- Inline icons ---------- */
 const Icon = ({ d, size = 16, stroke = 'currentColor', fill = 'none', sw = 1.6 }) => (
   <svg width={size} height={size} viewBox="0 0 24 24" fill={fill} stroke={stroke}
@@ -117,39 +128,13 @@ const IconDown = (p) => <Icon {...p} d={['M7 10l5 5 5-5']} />;
 const IconPlay = (p) => <Icon {...p} d="M8 5v14l11-7L8 5Z" fill="currentColor" sw={0} />;
 const IconPaperclip = (p) => <Icon {...p} d="M21 12.5 12.5 21a5.5 5.5 0 0 1-7.8-7.8L13 5a3.7 3.7 0 0 1 5.2 5.2L10 18.4a1.8 1.8 0 0 1-2.6-2.6L15 8.2" />;
 const IconPrompt = (p) => <Icon {...p} d={['M4 7h16', 'M4 12h16', 'M4 17h10']} />;
+const IconMenu = (p) => <Icon {...p} d={['M4 6h16', 'M4 12h16', 'M4 18h16']} />;
+const IconX = (p) => <Icon {...p} d={['M18 6 6 18', 'M6 6l12 12']} />;
 
 /* ---------- Sidebar ---------- */
-function Sidebar({ view, setView, conversations, activeConv, setActiveConv, onDelete }) {
+function Sidebar({ view, setView, conversations, activeConv, setActiveConv, onDelete, isOpen, onClose, isMobile }) {
   const [foldersOpen, setFoldersOpen] = useState(true);
   const [chatsOpen, setChatsOpen] = useState(true);
-
-  const folders = [
-    { name: 'General',    color: '#7fd0a3' },
-    { name: 'Design',     color: '#ffb37a' },
-    { name: 'Management', color: '#c8a3f0' },
-  ];
-
-  const navItem = (key, icon, label, badge) => {
-    const active = view === key;
-    return (
-      <button onClick={() => setView(key)}
-        style={{
-          display: 'flex', alignItems: 'center', gap: 10,
-          width: '100%', height: 36, padding: '0 10px',
-          background: active ? T.sideActive : 'transparent',
-          border: 0, borderRadius: 8, color: T.sideText,
-          fontSize: 13, cursor: 'pointer', textAlign: 'left',
-          transition: 'background .15s',
-        }}
-        onMouseEnter={e => { if (!active) e.currentTarget.style.background = T.sideHover; }}
-        onMouseLeave={e => { if (!active) e.currentTarget.style.background = 'transparent'; }}
-      >
-        <span style={{ color: T.sideText, opacity: 0.85 }}>{icon}</span>
-        <span style={{ flex: 1 }}>{label}</span>
-        {badge}
-      </button>
-    );
-  };
 
   const sectionHeader = (label, open, setOpen, withAdd = true) => (
     <div style={{
@@ -168,20 +153,29 @@ function Sidebar({ view, setView, conversations, activeConv, setActiveConv, onDe
       </button>
       <span style={{ flex: 1 }} />
       {withAdd && (
-        <>
-          <button style={iconBtnDark}><IconPlus size={13} /></button>
-        </>
+        <button style={iconBtnDark}><IconPlus size={13} /></button>
       )}
     </div>
   );
 
+  const sidebarStyle = isMobile ? {
+    width: 260, flexShrink: 0, height: '100%',
+    background: T.sideBg, color: T.sideText,
+    display: 'flex', flexDirection: 'column',
+    borderRight: `1px solid ${T.sideBorder}`,
+    position: 'fixed', top: 0, left: 0, zIndex: 300,
+    transform: isOpen ? 'translateX(0)' : 'translateX(-100%)',
+    transition: 'transform 0.3s cubic-bezier(0.16, 1, 0.3, 1)',
+    boxShadow: isOpen ? '4px 0 32px rgba(0,0,0,0.25)' : 'none',
+  } : {
+    width: 232, flexShrink: 0, height: '100%',
+    background: T.sideBg, color: T.sideText,
+    display: 'flex', flexDirection: 'column',
+    borderRight: `1px solid ${T.sideBorder}`,
+  };
+
   return (
-    <aside style={{
-      width: 232, flexShrink: 0, height: '100%',
-      background: T.sideBg, color: T.sideText,
-      display: 'flex', flexDirection: 'column',
-      borderRight: `1px solid ${T.sideBorder}`,
-    }}>
+    <aside style={sidebarStyle}>
       {/* Brand row */}
       <div style={{
         display: 'flex', alignItems: 'center', height: 56,
@@ -194,11 +188,19 @@ function Sidebar({ view, setView, conversations, activeConv, setActiveConv, onDe
         }}>
           <BrandMark size={18} color="#cdf373" />
         </div>
+        {isMobile && (
+          <button onClick={onClose} style={{
+            marginLeft: 'auto', background: 'transparent', border: 0,
+            color: T.sideDim, cursor: 'pointer', padding: 4, display: 'flex',
+          }}>
+            <IconX size={16} />
+          </button>
+        )}
       </div>
 
       {/* New Chat */}
       <div style={{ padding: '4px 12px 8px', display: 'flex', flexDirection: 'column', gap: 6 }}>
-        <button onClick={() => setActiveConv(null)} style={{
+        <button onClick={() => { setActiveConv(null); if (isMobile) onClose(); }} style={{
           ...pillDark, justifyContent: 'flex-start', gap: 8, height: 38,
         }}>
           <IconPlus size={14} /> <span>New Chat</span>
@@ -214,11 +216,15 @@ function Sidebar({ view, setView, conversations, activeConv, setActiveConv, onDe
             <div style={{ marginTop: 2 }}>
               <div style={{ color: T.sideDim, fontSize: 11, padding: '6px 10px 2px' }}>Today</div>
               {conversations.today.map(c => (
-                <ChatRow key={c.id} c={c} active={activeConv === c.id} onClick={() => { setActiveConv(c.id); setView('chat'); }} onDelete={onDelete} />
+                <ChatRow key={c.id} c={c} active={activeConv === c.id}
+                  onClick={() => { setActiveConv(c.id); setView('chat'); if (isMobile) onClose(); }}
+                  onDelete={onDelete} />
               ))}
               <div style={{ color: T.sideDim, fontSize: 11, padding: '8px 10px 2px' }}>Yesterday</div>
               {conversations.yesterday.map(c => (
-                <ChatRow key={c.id} c={c} active={activeConv === c.id} onClick={() => { setActiveConv(c.id); setView('chat'); }} onDelete={onDelete} />
+                <ChatRow key={c.id} c={c} active={activeConv === c.id}
+                  onClick={() => { setActiveConv(c.id); setView('chat'); if (isMobile) onClose(); }}
+                  onDelete={onDelete} />
               ))}
             </div>
           )}
@@ -244,8 +250,8 @@ function ChatRow({ c, active, onClick, onDelete }) {
       <span style={{ flex: 1, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
         {c.titleHead}<span style={{ color: T.sideDim }}> {c.titleTail}</span>
       </span>
-      <button className="row-dots liquid-hover" onClick={(e) => { e.stopPropagation(); onDelete(c.id); }} style={{ 
-        color: '#dc4a3a', background: 'transparent', border: 0, cursor: 'pointer', opacity: active ? 1 : 0 
+      <button className="row-dots liquid-hover" onClick={(e) => { e.stopPropagation(); onDelete(c.id); }} style={{
+        color: '#dc4a3a', background: 'transparent', border: 0, cursor: 'pointer', opacity: active ? 1 : 0
       }}>
         <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 6h18"></path><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
       </button>
@@ -267,15 +273,25 @@ const pillDark = {
 };
 
 /* ---------- Top bar (right side) ---------- */
-function TopBar({ title = 'Europe', titleAccent = 'trip.us', onSettings }) {
+function TopBar({ title = 'Europe', titleAccent = 'trip.us', onSettings, onMenuOpen, isMobile }) {
   return (
     <div style={{
       display: 'flex', alignItems: 'center', height: 64,
-      padding: '0 28px',
+      padding: isMobile ? '0 14px' : '0 28px',
     }}>
+      {isMobile && (
+        <button onClick={onMenuOpen} style={{
+          display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+          width: 38, height: 38, borderRadius: 10, border: `1px solid ${T.border}`,
+          background: T.bgSoft, color: T.ink, cursor: 'pointer', marginRight: 10,
+          flexShrink: 0,
+        }}>
+          <IconMenu size={18} />
+        </button>
+      )}
       <div style={{
         fontFamily: 'Fraunces, Georgia, serif',
-        fontSize: 26, fontWeight: 500, letterSpacing: -0.5,
+        fontSize: isMobile ? 20 : 26, fontWeight: 500, letterSpacing: -0.5,
         color: T.accentText,
       }}>
         {title}<span style={{ color: T.ink }}>{titleAccent}</span>
@@ -283,28 +299,29 @@ function TopBar({ title = 'Europe', titleAccent = 'trip.us', onSettings }) {
       <span style={{ flex: 1 }} />
       <button className="liquid-hover" onClick={onSettings} style={{
         display: 'inline-flex', alignItems: 'center', gap: 6,
-        height: 36, padding: '0 14px', borderRadius: 18, marginLeft: 8,
+        height: 36, padding: isMobile ? '0 10px' : '0 14px', borderRadius: 18, marginLeft: 8,
         background: T.ink, color: '#fff', border: 0,
         fontSize: 13, fontWeight: 500, cursor: 'pointer',
       }}>
-        <IconGear size={14} sw={1.8} /> Settings
+        <IconGear size={14} sw={1.8} />
+        {!isMobile && 'Settings'}
       </button>
     </div>
   );
 }
 
 /* ---------- Composer ---------- */
-function Composer({ value, onChange, onSend }) {
+function Composer({ value, onChange, onSend, isMobile }) {
   const [phText, setPhText] = useState('');
   const [phIdx, setPhIdx] = useState(0);
   const [isDeleting, setIsDeleting] = useState(false);
-  
+
   useEffect(() => {
     if (value) return; // Don't animate if user is typing
     const msgs = ['Suggest a 3-day itinerary...', 'Where is the best diner?', 'Show me a map of Route 66...'];
     const target = msgs[phIdx];
     const delay = isDeleting ? 40 : 80;
-    
+
     if (!isDeleting && phText === target) {
       const t = setTimeout(() => setIsDeleting(true), 2500);
       return () => clearTimeout(t);
@@ -321,7 +338,7 @@ function Composer({ value, onChange, onSend }) {
   }, [phText, isDeleting, phIdx, value]);
 
   return (
-    <div style={{ padding: '14px 28px 22px' }}>
+    <div style={{ padding: isMobile ? '10px 12px 16px' : '14px 28px 22px' }}>
       <div style={{
         display: 'flex', alignItems: 'center', gap: 10,
         background: T.bgSoft, borderRadius: 30, padding: '8px 8px 8px 8px',
@@ -332,6 +349,7 @@ function Composer({ value, onChange, onSend }) {
           <div style={{
             position: 'absolute', left: 21, top: '50%', transform: 'translateY(-50%)',
             pointerEvents: 'none', color: T.inkFaint, fontSize: 14, whiteSpace: 'nowrap',
+            overflow: 'hidden', maxWidth: 'calc(100% - 60px)',
           }}>
             {phText}<span style={{ opacity: isDeleting ? 0.2 : 0.8 }}>|</span>
           </div>
@@ -351,6 +369,7 @@ function Composer({ value, onChange, onSend }) {
           background: T.mint, border: `1px solid ${T.mintDeep}`,
           color: T.ink, cursor: 'pointer',
           display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+          flexShrink: 0,
         }}>
           <IconArrowR size={16} sw={2} />
         </button>
@@ -360,17 +379,23 @@ function Composer({ value, onChange, onSend }) {
 }
 
 /* ---------- Home view ---------- */
-function HomeView({ onPick, draft, setDraft, onSend, onSettings }) {
+function HomeView({ onPick, draft, setDraft, onSend, onSettings, onMenuOpen, isMobile }) {
+  const windowWidth = useWindowWidth();
   const cards = [
     { title: 'Accommodations', body: 'Find the best verified hotels and motels along Route 66.' },
     { title: 'Dining & Food',  body: 'Discover the best historic diners and eateries.' },
     { title: 'Maps & Detours', body: 'Interactive maps and advice for exploring hidden gems.' },
     { title: 'Motorcycle\nGuide', body: 'The Riders Bible: specific guidance for riding Route 66.' },
   ];
+
+  const gridCols = windowWidth <= 480 ? '1fr'
+    : windowWidth <= 768 ? 'repeat(2, 1fr)'
+    : 'repeat(4, minmax(0, 1fr))';
+
   return (
     <div className="slide-up" style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
-      <TopBar title="Europe" titleAccent="trip.us" onSettings={onSettings} />
-      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '0 32px' }}>
+      <TopBar title="Europe" titleAccent="trip.us" onSettings={onSettings} onMenuOpen={onMenuOpen} isMobile={isMobile} />
+      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: isMobile ? '0 16px' : '0 32px', overflowY: 'auto' }}>
         <div style={{
           width: 60, height: 60, borderRadius: 14,
           background: 'linear-gradient(135deg,#1d1e22,#3a3c44)',
@@ -381,7 +406,7 @@ function HomeView({ onPick, draft, setDraft, onSend, onSettings }) {
         </div>
         <h1 style={{
           margin: 0, fontFamily: 'Fraunces, Georgia, serif',
-          fontWeight: 400, fontSize: 36, letterSpacing: -0.8, color: T.ink,
+          fontWeight: 400, fontSize: isMobile ? 26 : 36, letterSpacing: -0.8, color: T.ink,
           textAlign: 'center',
         }}>
           How can we <span style={{ fontStyle: 'italic', color: T.accentText }}>assist</span> you today?
@@ -394,7 +419,7 @@ function HomeView({ onPick, draft, setDraft, onSend, onSettings }) {
           Choose a topic below or start typing to plan your perfect road trip.
         </p>
         <div style={{
-          display: 'grid', gridTemplateColumns: 'repeat(4, minmax(0, 1fr))',
+          display: 'grid', gridTemplateColumns: gridCols,
           gap: 14, width: '100%', maxWidth: 880,
         }}>
           {cards.map((c, i) => (
@@ -423,7 +448,7 @@ function HomeView({ onPick, draft, setDraft, onSend, onSettings }) {
           ))}
         </div>
       </div>
-      <Composer value={draft} onChange={setDraft} onSend={onSend} />
+      <Composer value={draft} onChange={setDraft} onSend={onSend} isMobile={isMobile} />
     </div>
   );
 }
@@ -491,13 +516,13 @@ function SearchStatus({ phase, steps }) {
   );
 }
 
-function ChatView({ messages, draft, setDraft, onSend, isLoading, searchPhase, searchSteps, onSettings }) {
+function ChatView({ messages, draft, setDraft, onSend, isLoading, searchPhase, searchSteps, onSettings, suggestions, onMenuOpen, isMobile }) {
   const scrollRef = useRef(null);
-  
+
   useEffect(() => {
     const el = scrollRef.current;
     if (!el) return;
-    
+
     if (isLoading) {
       el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' });
     } else {
@@ -510,18 +535,18 @@ function ChatView({ messages, draft, setDraft, onSend, isLoading, searchPhase, s
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
-      <TopBar title="Europe" titleAccent="trip.us" onSettings={onSettings} />
+      <TopBar title="Europe" titleAccent="trip.us" onSettings={onSettings} onMenuOpen={onMenuOpen} isMobile={isMobile} />
       <div ref={scrollRef} style={{
-        flex: 1, overflowY: 'auto', padding: '8px 28px 8px',
+        flex: 1, overflowY: 'auto', padding: isMobile ? '8px 12px 8px' : '8px 28px 8px',
       }}>
         <div style={{ maxWidth: 760, margin: '0 auto', display: 'flex', flexDirection: 'column', gap: 22, paddingBottom: 40 }}>
-          {messages.map(m => <div key={m.id} className="message-block"><Message m={m} /></div>)}
+          {messages.map(m => <div key={m.id} className="message-block"><Message m={m} isMobile={isMobile} /></div>)}
           {isLoading && searchPhase && (
             <SearchStatus phase={searchPhase} steps={searchSteps || []} />
           )}
           {messages.length > 0 && messages[messages.length-1].from === 'ai' && !isLoading && (
             <div className="slide-up" style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 10, marginBottom: 20 }}>
-              {['Tell me more details', 'Can you put that in a table?', 'Give me a step-by-step roadmap'].map(opt => (
+              {suggestions.map(opt => (
                 <button key={opt} className="liquid-hover" onClick={() => onSend(opt)} style={{
                   padding: '8px 14px', borderRadius: 16, border: `1px solid ${T.mintDeep}`,
                   background: '#f7fdf0', color: T.ink, fontSize: 12.5, cursor: 'pointer',
@@ -534,7 +559,7 @@ function ChatView({ messages, draft, setDraft, onSend, isLoading, searchPhase, s
           )}
         </div>
       </div>
-      <Composer value={draft} onChange={setDraft} onSend={onSend} />
+      <Composer value={draft} onChange={setDraft} onSend={onSend} isMobile={isMobile} />
     </div>
   );
 }
@@ -555,7 +580,7 @@ function Avatar({ side }) {
   );
 }
 
-function Message({ m }) {
+function Message({ m, isMobile }) {
   const isUser = m.from === 'user';
   return (
     <div className="slide-up" style={{
@@ -563,7 +588,7 @@ function Message({ m }) {
       flexDirection: isUser ? 'row-reverse' : 'row',
     }}>
       <Avatar side={isUser ? 'user' : 'ai'} />
-      <div style={{ display: 'flex', flexDirection: 'column', alignItems: isUser ? 'flex-end' : 'flex-start', gap: 6, maxWidth: '78%' }}>
+      <div style={{ display: 'flex', flexDirection: 'column', alignItems: isUser ? 'flex-end' : 'flex-start', gap: 6, maxWidth: isMobile ? '90%' : '78%' }}>
         <div style={{
           background: isUser ? T.lilac : T.bgSoft,
           color: T.ink, borderRadius: 14, padding: '10px 14px',
@@ -573,21 +598,20 @@ function Message({ m }) {
           {isUser ? (
             <div style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>{m.text}</div>
           ) : (
-            <div 
-              className="md-content" 
+            <div
+              className="md-content"
               style={{ wordBreak: 'break-word' }}
               dangerouslySetInnerHTML={{ __html: window.marked ? window.marked.parse(m.text || '') : (m.text || '') }}
             />
           )}
         </div>
-        {/* Citations hidden for now */}
         {/* footer (time + tools) */}
         {!isUser && m.time && (
           <div style={{ display: 'flex', alignItems: 'center', gap: 12, color: T.inkFaint, fontSize: 11 }}>
             {m.tools && (
               <div style={{ display: 'flex', gap: 10 }}>
                 <button style={tinyBtn}><IconReload size={13} /></button>
-                <button style={tinyBtn}><IconCopy size={13} /></button>
+                <button style={tinyBtn} onClick={() => navigator.clipboard?.writeText(m.text || '')}><IconCopy size={13} /></button>
                 <button style={tinyBtn}><IconUp size={13} /></button>
                 <button style={tinyBtn}><IconDown size={13} /></button>
               </div>
@@ -684,7 +708,7 @@ RULE 10: LANGUAGE IS ENGLISH ONLY.
 
 Format: Keep responses extremely concise and short. Use structured markdown (tables, quotes, ordered lists) for roadmaps. Do not give long messages unless the user explicitly asks for a brief or explanation. Respond in short sentences like a knowledgeable friend.`;
 
-function SettingsView({ onSettings }) {
+function SettingsView({ onSettings, isMobile, onMenuOpen }) {
   const [files, setFiles] = useState([]);
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
@@ -802,9 +826,9 @@ function SettingsView({ onSettings }) {
 
   return (
     <div className="slide-up" style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
-      <TopBar title="Europe" titleAccent="trip.us" onSettings={onSettings} />
-      <div style={{ flex: 1, overflowY: 'auto', padding: '0 28px 28px' }}>
-        
+      <TopBar title="Europe" titleAccent="trip.us" onSettings={onSettings} onMenuOpen={onMenuOpen} isMobile={isMobile} />
+      <div style={{ flex: 1, overflowY: 'auto', padding: isMobile ? '0 12px 20px' : '0 28px 28px' }}>
+
         {/* Header */}
         <div style={{
           display: 'flex', alignItems: 'center', gap: 12,
@@ -830,7 +854,7 @@ function SettingsView({ onSettings }) {
 
         {/* KB Tab */}
         {activeTab === 'kb' && (
-          <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 14 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '2fr 1fr', gap: 14 }}>
             <div style={{
               background: T.bgSoft, border: `1px solid ${T.border}`,
               borderRadius: 14, padding: 14, display: 'flex', flexDirection: 'column', gap: 10,
@@ -894,10 +918,10 @@ function SettingsView({ onSettings }) {
         {/* System Prompt Tab */}
         {activeTab === 'prompt' && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-            
+
             {/* Editor */}
             <div style={{ background: T.bgSoft, border: `1px solid ${T.border}`, borderRadius: 14, padding: 16 }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10, flexWrap: 'wrap', gap: 8 }}>
                 <div style={{ fontWeight: 600, fontSize: 13 }}>System Prompt</div>
                 <div style={{ display: 'flex', gap: 8 }}>
                   <button onClick={resetPrompt} style={{
@@ -920,7 +944,7 @@ function SettingsView({ onSettings }) {
                   boxSizing: 'border-box',
                 }}
               />
-              <div style={{ marginTop: 8, fontSize: 11, color: T.inkDim }}>Changes are saved to your browser and take effect on the next message.</div>
+              <div style={{ marginTop: 8, fontSize: 11, color: T.inkDim }}>Changes are saved to the backend database and take effect on the next message.</div>
             </div>
 
             {/* Variables Reference */}
@@ -973,6 +997,10 @@ function App() {
       50% { opacity: 0.5; }
     }
   `;
+
+  const windowWidth = useWindowWidth();
+  const isMobile = windowWidth <= 640;
+
   const [activeConv, setActiveConv] = useState(null);
   const [messages, setMessages] = useState([]);
   const [draft, setDraft] = useState('');
@@ -980,6 +1008,15 @@ function App() {
   const [conversations, setConversations] = useState({ today: [], yesterday: [] });
   const [searchPhase, setSearchPhase] = useState(null); // 'kb' | 'web' | null
   const [searchSteps, setSearchSteps] = useState([]);
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [suggestions, setSuggestions] = useState([
+    'Tell me more details',
+    'Can you put that in a table?',
+    'Give me a step-by-step roadmap',
+  ]);
+
+  // Tracks the current conversation ID for API calls without triggering effects
+  const currentConvIdRef = useRef(null);
 
   const pushStep = (msg) => setSearchSteps(prev => [...prev, msg]);
 
@@ -988,9 +1025,9 @@ function App() {
       const res = await fetch(`${API_URL}/api/conversations`);
       const data = await res.json();
       const today = data.slice(0, 50).map(c => ({
-         id: c.id, 
-         titleHead: c.title.slice(0, 20), 
-         titleTail: c.title.slice(20) || '' 
+         id: c.id,
+         titleHead: c.title.slice(0, 20),
+         titleTail: c.title.slice(20) || ''
       }));
       setConversations({ today, yesterday: [] });
     } catch (e) {
@@ -1002,8 +1039,13 @@ function App() {
     loadConversations();
   }, []);
 
+  // Load messages when user switches conversations via sidebar
   useEffect(() => {
     if (activeConv) {
+      // Guard: if this conv is already loaded in-memory from a send() call, don't reload
+      if (activeConv === currentConvIdRef.current) return;
+      currentConvIdRef.current = activeConv;
+
       const loadMessages = async () => {
         setIsLoading(true);
         try {
@@ -1021,7 +1063,7 @@ function App() {
               kind: 'text',
               text: cleanedText,
               citations: m.citations,
-              time: '' 
+              time: ''
             };
           });
           setMessages(mapped);
@@ -1034,6 +1076,7 @@ function App() {
       };
       loadMessages();
     } else {
+      currentConvIdRef.current = null;
       setMessages([]);
       setView('home');
     }
@@ -1043,6 +1086,24 @@ function App() {
   const isNotFoundResponse = (text) => {
     if (!text || typeof text !== 'string') return false;
     return NOT_FOUND_PATTERNS.some(p => text.toLowerCase().includes(p));
+  };
+
+  const fetchSuggestions = async (userMsg, aiResponse) => {
+    try {
+      const res = await fetch(`${API_URL}/api/suggest`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message: userMsg, response: aiResponse }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.suggestions && data.suggestions.length >= 1) {
+          setSuggestions(data.suggestions.slice(0, 3));
+        }
+      }
+    } catch (e) {
+      // Keep current suggestions on failure
+    }
   };
 
   const send = async (explicitText) => {
@@ -1057,6 +1118,9 @@ function App() {
     setIsLoading(true);
     setSearchPhase('kb');
 
+    // Use ref to pass correct conversation_id even before setActiveConv fires
+    const convIdToUse = activeConv || currentConvIdRef.current;
+
     try {
       // Phase 1: Knowledge Base Search
       pushStep('Reading Route 66 guides...');
@@ -1066,9 +1130,9 @@ function App() {
       const res = await fetch(`${API_URL}/api/chat`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message: text, conversation_id: activeConv })
+        body: JSON.stringify({ message: text, conversation_id: convIdToUse })
       });
-      
+
       if (!res.ok) {
         console.error(`KB Search failed: ${res.status}`);
         setMessages(prev => [...prev, {
@@ -1080,7 +1144,10 @@ function App() {
       }
       const data = await res.json();
 
-      // Note: activeConv is set at the end to prevent loadMessages from triggering mid-search
+      // Capture conversation ID from first response (fixes stale closure bug)
+      if (!currentConvIdRef.current && data.conversation_id) {
+        currentConvIdRef.current = data.conversation_id;
+      }
 
       // Phase 2: Fallback to Web Search if KB has no answer
       if (isNotFoundResponse(data.response)) {
@@ -1092,29 +1159,38 @@ function App() {
         await new Promise(r => setTimeout(r, 300));
         pushStep('Reading web sources...');
 
+        const webConvId = data.conversation_id || currentConvIdRef.current || convIdToUse;
+
         try {
           const webRes = await fetch(`${API_URL}/api/web-search`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ message: text, conversation_id: data.conversation_id || activeConv })
+            body: JSON.stringify({ message: text, conversation_id: webConvId })
           });
           const webData = webRes.ok ? await webRes.json() : null;
           pushStep('Synthesising answer...');
           await new Promise(r => setTimeout(r, 200));
+
+          const webResponseText = (webData && webData.response)
+            ? webData.response
+            : "Web search didn't find a result for this. The knowledge base also doesn't have an answer. Try searching Google directly.";
+
           setMessages(prev => [...prev, {
             id: Date.now() + 1, from: 'ai', kind: 'text',
-            text: (webData && webData.response) ? webData.response : "Couldn't find this online either. Try checking Google directly.",
+            text: webResponseText,
             citations: (webData && webData.citations) || [],
             time: nowTime(), tools: true, source: 'web',
-            conversation_id: webData?.conversation_id || data.conversation_id || activeConv
           }]);
+          fetchSuggestions(text, webResponseText);
         } catch (webErr) {
           console.error('Web search error:', webErr);
+          const errText = "Web search is unavailable right now. The knowledge base also didn't have an answer for this. Please try Google directly.";
           setMessages(prev => [...prev, {
             id: Date.now() + 1, from: 'ai', kind: 'text',
-            text: "Web search is temporarily unavailable. Please try again shortly.",
+            text: errText,
             time: nowTime(), tools: true,
           }]);
+          fetchSuggestions(text, errText);
         }
       } else {
         pushStep('Found relevant information!');
@@ -1124,8 +1200,8 @@ function App() {
           text: data.response || "No response found.",
           citations: data.citations || [],
           time: nowTime(), tools: true, source: 'kb',
-          conversation_id: data.conversation_id || activeConv
         }]);
+        fetchSuggestions(text, data.response || '');
       }
     } catch (e) {
       console.error(e);
@@ -1138,16 +1214,12 @@ function App() {
       setIsLoading(false);
       setSearchPhase(null);
       setSearchSteps([]);
-      
-      // Now that everything is done, set the active conversation to trigger sidebar sync
-      // if it wasn't already set.
-      if (!activeConv && messages.length > 0) {
-        // We need to find the conversation_id from the last AI message
-        const lastAi = messages.find(m => m.from === 'ai' && m.conversation_id);
-        if (lastAi && lastAi.conversation_id) {
-          setActiveConv(lastAi.conversation_id);
-          loadConversations();
-        }
+
+      // Update activeConv to reflect new conversation in sidebar.
+      // The useEffect guard (activeConv === currentConvIdRef.current) prevents a reload.
+      if (!activeConv && currentConvIdRef.current) {
+        setActiveConv(currentConvIdRef.current);
+        loadConversations();
       }
     }
   };
@@ -1156,30 +1228,50 @@ function App() {
     setDraft(`Help me with: ${label}`);
   };
 
+  const handleMenuOpen = () => setSidebarOpen(true);
+  const handleMenuClose = () => setSidebarOpen(false);
+
   return (
     <div style={{
       width: '100%', height: '100%',
       display: 'flex', background: '#fff',
       fontFamily: '-apple-system, "SF Pro Text", "Inter", system-ui, sans-serif',
-      color: T.ink,
+      color: T.ink, overflow: 'hidden',
     }}>
       <style>{animStyle}</style>
+
+      {/* Mobile backdrop */}
+      {isMobile && sidebarOpen && (
+        <div onClick={handleMenuClose} style={{
+          position: 'fixed', inset: 0, zIndex: 299,
+          background: 'rgba(0,0,0,0.35)',
+          backdropFilter: 'blur(2px)',
+        }} />
+      )}
+
       <Sidebar
         view={view} setView={setView}
         conversations={conversations}
         activeConv={activeConv} setActiveConv={setActiveConv}
+        isOpen={sidebarOpen} onClose={handleMenuClose}
+        isMobile={isMobile}
         onDelete={async (id) => {
           try {
             await fetch(`${API_URL}/api/conversations/${id}`, { method: 'DELETE' });
-            if (activeConv === id) { setActiveConv(null); setMessages([]); setView('home'); }
+            if (activeConv === id) {
+              currentConvIdRef.current = null;
+              setActiveConv(null);
+              setMessages([]);
+              setView('home');
+            }
             loadConversations();
           } catch(e) { console.error(e); }
         }}
       />
       <main style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column' }}>
-        {view === 'home' && <HomeView onPick={pickPrompt} draft={draft} setDraft={setDraft} onSend={send} onSettings={() => setView('settings')} />}
-        {view === 'chat' && <ChatView messages={messages} draft={draft} setDraft={setDraft} onSend={send} isLoading={isLoading} searchPhase={searchPhase} searchSteps={searchSteps} onSettings={() => setView('settings')} />}
-        {view === 'settings' && <SettingsView onSettings={() => setView(activeConv ? 'chat' : 'home')} />}
+        {view === 'home' && <HomeView onPick={pickPrompt} draft={draft} setDraft={setDraft} onSend={send} onSettings={() => setView('settings')} onMenuOpen={handleMenuOpen} isMobile={isMobile} />}
+        {view === 'chat' && <ChatView messages={messages} draft={draft} setDraft={setDraft} onSend={send} isLoading={isLoading} searchPhase={searchPhase} searchSteps={searchSteps} onSettings={() => setView('settings')} suggestions={suggestions} onMenuOpen={handleMenuOpen} isMobile={isMobile} />}
+        {view === 'settings' && <SettingsView onSettings={() => setView(activeConv ? 'chat' : 'home')} isMobile={isMobile} onMenuOpen={handleMenuOpen} />}
       </main>
     </div>
   );
