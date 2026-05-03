@@ -370,10 +370,7 @@ async def chat(req: ChatRequest):
             headers=api_headers(),
             json={
                 "contents": contents,
-                "tools": [
-                    {"fileSearch": {"fileSearchStoreNames": [store]}},
-                    {"googleSearch": {}}
-                ],
+                "tools": [{"fileSearch": {"fileSearchStoreNames": [store]}}],
                 "systemInstruction": {"parts": [{"text": STRICT_SYSTEM_PROMPT}]},
             },
         )
@@ -414,6 +411,73 @@ async def chat(req: ChatRequest):
         ]).execute()
 
         return {"response": text, "citations": citations, "conversation_id": conv_id}
+
+
+
+# ── Web Search (Google Search grounding, separate from KB) ────────────────────
+
+WEB_SEARCH_SYSTEM_PROMPT = """
+You are a helpful travel assistant for europetrip.us. The user's question was NOT found in the Route 66 knowledge base, so you are now searching the open web to find the best answer.
+
+RULES:
+- Always start your response with exactly: "From the web:"
+- Provide accurate, concise, factual information from your Google Search results.
+- Keep responses short and structured. Use bullet points where helpful.
+- Do not fabricate information. Only state what you found.
+- If web search also yields nothing useful, say: "We couldn't find reliable information on this online either. Please check Google Maps or TripAdvisor directly."
+"""
+
+@app.post("/api/web-search")
+async def web_search_endpoint(req: ChatRequest):
+    """Web search using Gemini + Google Search grounding. Saves only model response (user already saved by /api/chat)."""
+    conv_id = req.conversation_id
+    if not conv_id:
+        res = sb.table("conversations").insert({"title": req.message[:60]}).execute()
+        conv_id = res.data[0]["id"]
+
+    # Load conversation history
+    history_res = sb.table("messages").select("role,content").eq("conversation_id", conv_id).order("created_at").execute()
+    contents = [{"role": m["role"], "parts": [{"text": m["content"]}]} for m in history_res.data]
+    # Append user message (already saved to DB by /api/chat, just needed for context)
+    contents.append({"role": "user", "parts": [{"text": req.message}]})
+
+    async with httpx.AsyncClient(timeout=60) as h:
+        r = await h.post(
+            f"{BASE}/v1beta/models/{MODEL}:generateContent",
+            headers=api_headers(),
+            json={
+                "contents": contents,
+                "tools": [{"googleSearch": {}}],
+                "systemInstruction": {"parts": [{"text": WEB_SEARCH_SYSTEM_PROMPT}]},
+            },
+        )
+        if r.status_code != 200:
+            raise HTTPException(status_code=r.status_code, detail=r.text)
+
+        d = r.json()
+        candidate = d.get("candidates", [{}])[0]
+
+        try:
+            text = candidate["content"]["parts"][0]["text"]
+        except (KeyError, IndexError):
+            text = "We couldn't find reliable information on this online either. Please check Google Maps or TripAdvisor directly."
+
+        # Extract web citations from grounding metadata
+        citations = []
+        grounding = candidate.get("groundingMetadata", {})
+        for chunk in grounding.get("groundingChunks", []):
+            web = chunk.get("web", {})
+            uri = web.get("uri", "")
+            title = web.get("title", "")
+            if uri or title:
+                citations.append({"source": f"\U0001f310 {title}", "snippet": uri})
+
+        # Save only the model's web response (user message was already persisted by /api/chat)
+        sb.table("messages").insert([
+            {"conversation_id": conv_id, "role": "model", "content": text, "citations": citations},
+        ]).execute()
+
+        return {"response": text, "citations": citations, "conversation_id": conv_id, "source": "web"}
 
 
 # ── Static UI ──────────────────────────────────────────────────────────────────

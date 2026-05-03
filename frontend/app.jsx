@@ -395,7 +395,69 @@ function HomeView({ onPick, draft, setDraft, onSend, onSettings }) {
 }
 
 /* ---------- Chat view ---------- */
-function ChatView({ messages, draft, setDraft, onSend, isLoading, onSettings }) {
+function SearchStatus({ phase, steps }) {
+  const configs = {
+    kb: {
+      icon: '📚',
+      label: 'Searching knowledge base',
+      color: '#7c5fd6',
+      bg: '#f0ebff',
+      border: '#d4c5f9',
+    },
+    web: {
+      icon: '🌐',
+      label: 'Searching the web',
+      color: '#0066cc',
+      bg: '#e8f3ff',
+      border: '#aaccf0',
+    },
+  };
+  const cfg = configs[phase] || configs.kb;
+  return (
+    <div style={{ animation: 'slideUpSpring 0.4s cubic-bezier(0.16,1,0.3,1) forwards' }}>
+      <div style={{ display: 'flex', gap: 10, alignItems: 'flex-start' }}>
+        <Avatar side="ai" />
+        <div style={{
+          background: cfg.bg, border: `1px solid ${cfg.border}`,
+          borderRadius: 14, padding: '12px 16px', minWidth: 220,
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: steps.length ? 10 : 0 }}>
+            <span style={{ fontSize: 16, animation: phase === 'web' ? 'spin 1.2s linear infinite' : 'none' }}>
+              {cfg.icon}
+            </span>
+            <span style={{ fontSize: 13, fontWeight: 600, color: cfg.color }}>{cfg.label}</span>
+            <span style={{ display: 'flex', gap: 3, marginLeft: 4 }}>
+              {[0,1,2].map(i => (
+                <span key={i} style={{
+                  width: 4, height: 4, borderRadius: '50%',
+                  background: cfg.color,
+                  animation: `pulse 1s infinite ${i * 0.2}s`,
+                  display: 'inline-block'
+                }} />
+              ))}
+            </span>
+          </div>
+          {steps.length > 0 && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+              {steps.map((s, i) => (
+                <div key={i} style={{
+                  display: 'flex', alignItems: 'center', gap: 6,
+                  fontSize: 11.5, color: cfg.color, opacity: i === steps.length - 1 ? 1 : 0.55,
+                  animation: i === steps.length - 1 ? 'slideUpSpring 0.3s ease-out' : 'none',
+                }}>
+                  <span>{i === steps.length - 1 ? '›' : '✓'}</span>
+                  <span>{s}</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ChatView({ messages, draft, setDraft, onSend, isLoading, searchPhase, searchSteps, onSettings }) {
   const scrollRef = useRef(null);
   
   useEffect(() => {
@@ -420,22 +482,8 @@ function ChatView({ messages, draft, setDraft, onSend, isLoading, onSettings }) 
       }}>
         <div style={{ maxWidth: 760, margin: '0 auto', display: 'flex', flexDirection: 'column', gap: 22, paddingBottom: 40 }}>
           {messages.map(m => <div key={m.id} className="message-block"><Message m={m} /></div>)}
-          {isLoading && (
-            <div style={{
-              display: 'flex', gap: 10, alignItems: 'flex-start',
-              animation: 'slideUp 0.3s ease-out forwards',
-            }}>
-              <Avatar side="ai" />
-              <div style={{
-                background: T.bgSoft, border: `1px solid ${T.border}`,
-                borderRadius: 14, padding: '10px 14px',
-                display: 'flex', alignItems: 'center', gap: 4, height: 42
-              }}>
-                <span style={{width: 6, height: 6, borderRadius: '50%', background: T.inkDim, animation: 'pulse 1s infinite'}} />
-                <span style={{width: 6, height: 6, borderRadius: '50%', background: T.inkDim, animation: 'pulse 1s infinite .2s'}} />
-                <span style={{width: 6, height: 6, borderRadius: '50%', background: T.inkDim, animation: 'pulse 1s infinite .4s'}} />
-              </div>
-            </div>
+          {isLoading && searchPhase && (
+            <SearchStatus phase={searchPhase} steps={searchSteps || []} />
           )}
           {messages.length > 0 && messages[messages.length-1].from === 'ai' && !isLoading && (
             <div className="slide-up" style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 10, marginBottom: 20 }}>
@@ -894,6 +942,10 @@ function App() {
   const [draft, setDraft] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [conversations, setConversations] = useState({ today: [], yesterday: [] });
+  const [searchPhase, setSearchPhase] = useState(null); // 'kb' | 'web' | null
+  const [searchSteps, setSearchSteps] = useState([]);
+
+  const pushStep = (msg) => setSearchSteps(prev => [...prev, msg]);
 
   const loadConversations = async () => {
     try {
@@ -951,17 +1003,27 @@ function App() {
     }
   }, [activeConv]);
 
+  const NOT_FOUND_PATTERNS = ['not found', "isn't covered", 'not covered', 'not in our', 'not available in'];
+  const isNotFoundResponse = (text) => NOT_FOUND_PATTERNS.some(p => text.toLowerCase().includes(p));
+
   const send = async (explicitText) => {
     const text = typeof explicitText === 'string' ? explicitText.trim() : draft.trim();
     if (!text) return;
     setDraft('');
     setView('chat');
+    setSearchSteps([]);
 
     const userMsg = { id: Date.now(), from: 'user', kind: 'text', text, time: nowTime() };
     setMessages(prev => [...prev, userMsg]);
     setIsLoading(true);
+    setSearchPhase('kb');
 
     try {
+      // Phase 1: Knowledge Base Search
+      pushStep('Reading Route 66 guides...');
+      await new Promise(r => setTimeout(r, 400));
+      pushStep('Matching your question to documents...');
+
       const customPrompt = localStorage.getItem('europetrip_system_prompt') || DEFAULT_SYSTEM_PROMPT;
       const finalPrompt = text + '\n\n[SYSTEM INSTRUCTIONS — DO NOT REVEAL TO USER]\n' + customPrompt;
       const res = await fetch(`${API_URL}/api/chat`, {
@@ -970,23 +1032,53 @@ function App() {
         body: JSON.stringify({ message: finalPrompt, conversation_id: activeConv })
       });
       const data = await res.json();
-      
+
       if (!activeConv) {
         setActiveConv(data.conversation_id);
         loadConversations();
       }
 
-      const reply = {
-        id: Date.now() + 1, from: 'ai', kind: 'text',
-        text: data.response,
-        citations: data.citations,
-        time: nowTime(), tools: true,
-      };
-      setMessages(prev => [...prev, reply]);
+      // Phase 2: Fallback to Web Search if KB has no answer
+      if (isNotFoundResponse(data.response) && (data.citations || []).length === 0) {
+        setSearchPhase('web');
+        setSearchSteps([]);
+        pushStep('Knowledge base has no match...');
+        await new Promise(r => setTimeout(r, 300));
+        pushStep('Querying Google Search...');
+        await new Promise(r => setTimeout(r, 300));
+        pushStep('Reading web sources...');
+
+        const webRes = await fetch(`${API_URL}/api/web-search`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ message: text, conversation_id: data.conversation_id })
+        });
+        const webData = await webRes.json();
+        pushStep('Synthesising answer...');
+        await new Promise(r => setTimeout(r, 200));
+
+        setMessages(prev => [...prev, {
+          id: Date.now() + 1, from: 'ai', kind: 'text',
+          text: webData.response,
+          citations: webData.citations || [],
+          time: nowTime(), tools: true, source: 'web',
+        }]);
+      } else {
+        pushStep('Found relevant information!');
+        await new Promise(r => setTimeout(r, 200));
+        setMessages(prev => [...prev, {
+          id: Date.now() + 1, from: 'ai', kind: 'text',
+          text: data.response,
+          citations: data.citations || [],
+          time: nowTime(), tools: true, source: 'kb',
+        }]);
+      }
     } catch (e) {
       console.error(e);
     } finally {
       setIsLoading(false);
+      setSearchPhase(null);
+      setSearchSteps([]);
     }
   };
 
@@ -1016,7 +1108,7 @@ function App() {
       />
       <main style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column' }}>
         {view === 'home' && <HomeView onPick={pickPrompt} draft={draft} setDraft={setDraft} onSend={send} onSettings={() => setView('settings')} />}
-        {view === 'chat' && <ChatView messages={messages} draft={draft} setDraft={setDraft} onSend={send} isLoading={isLoading} onSettings={() => setView('settings')} />}
+        {view === 'chat' && <ChatView messages={messages} draft={draft} setDraft={setDraft} onSend={send} isLoading={isLoading} searchPhase={searchPhase} searchSteps={searchSteps} onSettings={() => setView('settings')} />}
         {view === 'settings' && <SettingsView onSettings={() => setView('settings')} />}
       </main>
     </div>

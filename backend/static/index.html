@@ -24,6 +24,16 @@
     100% { opacity: 1; transform: translateY(0) scale(1); } 
   }
 
+  @keyframes spin {
+    from { transform: rotate(0deg); }
+    to { transform: rotate(360deg); }
+  }
+  @keyframes pulse-ring {
+    0% { box-shadow: 0 0 0 0 rgba(0, 102, 204, 0.4); }
+    70% { box-shadow: 0 0 0 8px rgba(0, 102, 204, 0); }
+    100% { box-shadow: 0 0 0 0 rgba(0, 102, 204, 0); }
+  }
+
   /* Rich Markdown Content Styling (Structured Blocks) */
   .md-content { font-size: 14px; line-height: 1.6; color: #222428; }
   .md-content > *:first-child { margin-top: 0; }
