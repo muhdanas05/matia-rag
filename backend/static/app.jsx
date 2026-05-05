@@ -612,7 +612,35 @@ function Message({ m, isMobile }) {
                 <button style={tinyBtn}><IconDown size={13} /></button>
               </div>
             )}
+            {m.source && (
+              <span style={{
+                display: 'inline-flex', alignItems: 'center', gap: 3,
+                background: m.source === 'web' ? 'rgba(250,115,21,0.08)' : 'rgba(0,0,0,0.04)',
+                border: `1px solid ${m.source === 'web' ? 'rgba(250,115,21,0.25)' : T.border}`,
+                borderRadius: 99, padding: '1px 7px', fontSize: 10, color: m.source === 'web' ? T.mint : T.inkDim,
+              }}>
+                {m.source === 'web' ? '🌐 Web search' : '📚 Knowledge base'}
+              </span>
+            )}
             <span>{m.time}</span>
+          </div>
+        )}
+        {/* citations */}
+        {!isUser && m.citations && m.citations.length > 0 && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 3, marginTop: 2 }}>
+            {m.citations.slice(0, 4).map((c, i) => {
+              const isWebUrl = c.snippet && c.snippet.startsWith('http');
+              const label = c.source ? c.source.replace('🌐 ', '').replace('europetrip_US_', '') : '';
+              return isWebUrl ? (
+                <a key={i} href={c.snippet} target="_blank" rel="noreferrer" style={{
+                  fontSize: 10.5, color: T.mint, textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 3,
+                }}>↗ {label}</a>
+              ) : label ? (
+                <span key={i} style={{ fontSize: 10.5, color: T.inkDim, display: 'inline-flex', alignItems: 'center', gap: 3 }}>
+                  📄 {label}
+                </span>
+              ) : null;
+            })}
           </div>
         )}
         {isUser && m.time && (
