@@ -1158,8 +1158,10 @@ function App() {
         currentConvIdRef.current = data.conversation_id;
       }
 
-      // Phase 2: Fallback to Web Search if KB has no answer
-      if (isNotFoundResponse(data.response)) {
+      // Phase 2: Fallback to Web Search if KB has no answer OR model signals live data needed
+      const needsLiveData = data.response && data.response.includes('[NEEDS_LIVE_DATA]');
+      const kbResponseClean = needsLiveData ? data.response.replace('[NEEDS_LIVE_DATA]', '').trim() : data.response;
+      if (isNotFoundResponse(kbResponseClean) || needsLiveData) {
         setSearchPhase('web');
         setSearchSteps([]);
         pushStep('Knowledge base has no match...');
