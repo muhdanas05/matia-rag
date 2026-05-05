@@ -118,7 +118,9 @@
   .md-content ul ul, .md-content ol ol, .md-content ul ol, .md-content ol ul { margin: 6px 0 6px 16px; }
 
   /* Table overflow on mobile */
-  .md-content table { display: block; overflow-x: auto; }
+  .md-content table { display: block; overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  .md-content th { white-space: nowrap; }
+  .md-content td { white-space: normal; min-width: 80px; }
 </style>
 </head>
 <body>
