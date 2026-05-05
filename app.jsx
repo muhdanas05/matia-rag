@@ -1,5 +1,4 @@
-// Europetrip.us — AI Assistant prototype
-// Original design inspired by common chat-assistant layouts (dark sidebar, light main, mint accent)
+// Route 66 — AI Assistant
 
 const { useState, useRef, useEffect, Component } = React;
 
@@ -28,7 +27,7 @@ class ErrorBoundary extends Component {
           <div style={{ fontSize: 13, color: '#6b6d72', marginBottom: 20 }}>The app encountered an error. Try refreshing.</div>
           <button onClick={() => window.location.reload()} style={{
             padding: '10px 24px', borderRadius: 12, border: 'none',
-            background: '#cdf373', color: '#1a1b1e', fontWeight: 600, cursor: 'pointer', fontSize: 14,
+            background: '#FA7315', color: '#1a1b1e', fontWeight: 600, cursor: 'pointer', fontSize: 14,
           }}>Refresh</button>
         </div>
       );
@@ -58,36 +57,21 @@ const T = {
   card: '#ffffff',
 
   // accents
-  mint: '#cdf373',          // signature pill green
-  mintDeep: '#b8e054',
-  lilac: '#efe7fb',         // user message bubble
-  lilacDeep: '#d9c8f4',
+  mint: '#FA7315',          // Route 66 orange
+  mintDeep: '#D45F00',
+  lilac: '#fff3eb',         // user message bubble
+  lilacDeep: '#FFD5B0',
   peach: '#ffe7d9',         // folder accent
   rose: '#f4cdd9',
   ocean: '#cce4f7',
 
   // typography accent in headline
-  accentText: '#7c5fd6',
+  accentText: '#FA7315',
 };
 
-/* ---------- Logo (original mark) ---------- */
-function BrandMark({ size = 22, color = '#fff' }) {
-  // 6-dot rosette around a center
-  const r = size / 2;
-  const dots = [];
-  for (let i = 0; i < 6; i++) {
-    const a = (i / 6) * Math.PI * 2 - Math.PI / 2;
-    dots.push(
-      <circle key={i} cx={r + Math.cos(a) * r * 0.55} cy={r + Math.sin(a) * r * 0.55}
-        r={size * 0.11} fill={color} />
-    );
-  }
-  return (
-    <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} style={{ display: 'block' }}>
-      {dots}
-      <circle cx={r} cy={r} r={size * 0.11} fill={color} />
-    </svg>
-  );
+/* ---------- Logo ---------- */
+function BrandMark({ size = 22 }) {
+  return <img src="logo.jpg" style={{ width: size, height: size, objectFit: 'contain', display: 'block' }} alt="Route 66" />;
 }
 
 /* ---------- Responsive width hook ---------- */
@@ -183,10 +167,10 @@ function Sidebar({ view, setView, conversations, activeConv, setActiveConv, onDe
       }}>
         <div style={{
           width: 30, height: 30, borderRadius: 8,
-          background: 'linear-gradient(135deg,#2e3036,#1f2024)',
+          background: 'rgba(255,255,255,0.92)',
           display: 'flex', alignItems: 'center', justifyContent: 'center',
         }}>
-          <BrandMark size={18} color="#cdf373" />
+          <BrandMark size={22} />
         </div>
         {isMobile && (
           <button onClick={onClose} style={{
@@ -273,7 +257,7 @@ const pillDark = {
 };
 
 /* ---------- Top bar (right side) ---------- */
-function TopBar({ title = 'Europe', titleAccent = 'trip.us', onSettings, onMenuOpen, isMobile }) {
+function TopBar({ title = 'Route', titleAccent = ' 66', onSettings, onMenuOpen, isMobile }) {
   return (
     <div style={{
       display: 'flex', alignItems: 'center', height: 64,
@@ -396,7 +380,7 @@ function HomeView({ onPick, draft, setDraft, onSend, onSettings, onMenuOpen, isM
 
   return (
     <div className="slide-up" style={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0 }}>
-      <TopBar title="Europe" titleAccent="trip.us" onSettings={onSettings} onMenuOpen={onMenuOpen} isMobile={isMobile} />
+      <TopBar title="Route" titleAccent=" 66" onSettings={onSettings} onMenuOpen={onMenuOpen} isMobile={isMobile} />
       {/*
         On mobile: justifyContent flex-start + paddingTop so content starts at top of scroll area.
         justify-content:center in an overflow container hides content ABOVE centre — you can't scroll up to it.
@@ -410,11 +394,11 @@ function HomeView({ onPick, draft, setDraft, onSend, onSettings, onMenuOpen, isM
       }}>
         <div style={{
           width: 60, height: 60, borderRadius: 14,
-          background: 'linear-gradient(135deg,#1d1e22,#3a3c44)',
+          background: 'rgba(255,255,255,0.92)',
           display: 'flex', alignItems: 'center', justifyContent: 'center',
           marginBottom: 18,
         }}>
-          <BrandMark size={32} color="#cdf373" />
+          <BrandMark size={52} />
         </div>
         <h1 style={{
           margin: 0, fontFamily: 'Fraunces, Georgia, serif',
@@ -471,9 +455,9 @@ function SearchStatus({ phase, steps }) {
     kb: {
       icon: '📚',
       label: 'Searching knowledge base',
-      color: '#7c5fd6',
-      bg: '#f0ebff',
-      border: '#d4c5f9',
+      color: '#FA7315',
+      bg: '#fff5ee',
+      border: '#ffd5b0',
     },
     web: {
       icon: '🌐',
@@ -547,7 +531,7 @@ function ChatView({ messages, draft, setDraft, onSend, isLoading, searchPhase, s
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0 }}>
-      <TopBar title="Europe" titleAccent="trip.us" onSettings={onSettings} onMenuOpen={onMenuOpen} isMobile={isMobile} />
+      <TopBar title="Route" titleAccent=" 66" onSettings={onSettings} onMenuOpen={onMenuOpen} isMobile={isMobile} />
       <div ref={scrollRef} style={{
         flex: 1, overflowY: 'auto', overflowX: 'hidden', padding: isMobile ? '8px 12px 8px' : '8px 28px 8px',
         minHeight: 0,
@@ -562,7 +546,7 @@ function ChatView({ messages, draft, setDraft, onSend, isLoading, searchPhase, s
               {suggestions.map(opt => (
                 <button key={opt} className="liquid-hover" onClick={() => onSend(opt)} style={{
                   padding: '8px 14px', borderRadius: 16, border: `1px solid ${T.mintDeep}`,
-                  background: '#f7fdf0', color: T.ink, fontSize: 12.5, cursor: 'pointer',
+                  background: '#fff5ee', color: T.ink, fontSize: 12.5, cursor: 'pointer',
                   boxShadow: '0 2px 6px rgba(0,0,0,0.03)'
                 }}>
                   {opt}
@@ -585,10 +569,10 @@ function Avatar({ side }) {
         ? 'linear-gradient(135deg,#3a3c44,#1d1e22)'
         : 'linear-gradient(135deg,#1d1e22,#3a3c44)',
       display: 'flex', alignItems: 'center', justifyContent: 'center',
-      color: side === 'user' ? '#cdf373' : '#cdf373',
+      color: side === 'user' ? '#FA7315' : '#FA7315',
       fontSize: 11, fontWeight: 600,
     }}>
-      {side === 'user' ? 'JD' : <BrandMark size={14} color="#cdf373" />}
+      {side === 'user' ? 'JD' : <BrandMark size={14} />}
     </div>
   );
 }
@@ -704,7 +688,7 @@ function FileBubble({ title, link, name }) {
 }
 
 /* ---------- Settings view (Knowledge Base Manager + Prompt Editor) ---------- */
-const DEFAULT_SYSTEM_PROMPT = `You are an expert travel guide assistant operating exclusively for europetrip.us.
+const DEFAULT_SYSTEM_PROMPT = `You are an expert travel guide assistant for Route 66 road trips.
 Your sole purpose is to help users plan and understand their Route 66 road trip using the knowledge base provided.
 You are a specialised, knowledge-bound travel concierge.
 
@@ -839,7 +823,7 @@ function SettingsView({ onSettings, isMobile, onMenuOpen }) {
 
   return (
     <div className="slide-up" style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
-      <TopBar title="Europe" titleAccent="trip.us" onSettings={onSettings} onMenuOpen={onMenuOpen} isMobile={isMobile} />
+      <TopBar title="Route" titleAccent=" 66" onSettings={onSettings} onMenuOpen={onMenuOpen} isMobile={isMobile} />
       <div style={{ flex: 1, overflowY: 'auto', padding: isMobile ? '0 12px 20px' : '0 28px 28px' }}>
 
         {/* Header */}
@@ -850,10 +834,10 @@ function SettingsView({ onSettings, isMobile, onMenuOpen }) {
         }}>
           <div style={{
             width: 32, height: 32, borderRadius: 8,
-            background: 'linear-gradient(135deg,#1d1e22,#3a3c44)',
+            background: 'rgba(255,255,255,0.92)',
             display: 'flex', alignItems: 'center', justifyContent: 'center',
           }}>
-            <BrandMark size={16} color="#cdf373" />
+            <BrandMark size={26} />
           </div>
           <div style={{ flex: 1, fontWeight: 600, fontSize: 14 }}>Settings</div>
           <div style={{ fontSize: 12, color: T.inkDim }}>{files.length} documents active</div>
@@ -977,13 +961,13 @@ function SettingsView({ onSettings, isMobile, onMenuOpen }) {
                   }}>
                     <code style={{
                       background: '#f0f0f0', padding: '2px 7px', borderRadius: 5,
-                      fontSize: 11.5, fontFamily: 'monospace', color: '#7c5fd6', whiteSpace: 'nowrap',
+                      fontSize: 11.5, fontFamily: 'monospace', color: '#FA7315', whiteSpace: 'nowrap',
                     }}>{v}</code>
                     <span style={{ fontSize: 12, color: T.inkDim, lineHeight: 1.4 }}>{desc}</span>
                   </div>
                 ))}
               </div>
-              <div style={{ marginTop: 12, padding: '10px 12px', background: '#eefcf1', border: '1px solid #c6f6d5', borderRadius: 8, fontSize: 11.5, color: '#22543d', lineHeight: 1.5 }}>
+              <div style={{ marginTop: 12, padding: '10px 12px', background: '#fff5ee', border: '1px solid #ffd5b0', borderRadius: 8, fontSize: 11.5, color: '#7a3a00', lineHeight: 1.5 }}>
                 ✅ <strong>Tip:</strong> Changes are saved to the backend database and take effect instantly on the next message. You do <strong>not</strong> need to manually add variables like <code>{'{{retrieved_context}}'}</code>; the RAG engine automatically merges your documents and chat history into your custom instructions.
               </div>
             </div>
@@ -1022,7 +1006,11 @@ function App() {
   const [searchPhase, setSearchPhase] = useState(null); // 'kb' | 'web' | null
   const [searchSteps, setSearchSteps] = useState([]);
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  const suggestions = ['Tell me more details', 'Can you put that in a table?', 'Give me a step-by-step roadmap'];
+  const [suggestions, setSuggestions] = useState([
+    'Tell me more details',
+    'Can you put that in a table?',
+    'Give me a step-by-step roadmap',
+  ]);
 
   // Tracks the current conversation ID for API calls without triggering effects
   const currentConvIdRef = useRef(null);
@@ -1097,7 +1085,25 @@ function App() {
     return NOT_FOUND_PATTERNS.some(p => text.toLowerCase().includes(p));
   };
 
-const send = async (explicitText) => {
+  const fetchSuggestions = async (userMsg, aiResponse) => {
+    try {
+      const res = await fetch(`${API_URL}/api/suggest`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message: userMsg, response: aiResponse }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.suggestions && data.suggestions.length >= 1) {
+          setSuggestions(data.suggestions.slice(0, 3));
+        }
+      }
+    } catch (e) {
+      // Keep current suggestions on failure
+    }
+  };
+
+  const send = async (explicitText) => {
     const text = typeof explicitText === 'string' ? explicitText.trim() : draft.trim();
     if (!text || isLoading) return;
     setDraft('');
@@ -1172,6 +1178,7 @@ const send = async (explicitText) => {
             citations: (webData && webData.citations) || [],
             time: nowTime(), tools: true, source: 'web',
           }]);
+          fetchSuggestions(text, webResponseText);
         } catch (webErr) {
           console.error('Web search error:', webErr);
           const errText = "Web search is unavailable right now. The knowledge base also didn't have an answer for this. Please try Google directly.";
@@ -1180,6 +1187,7 @@ const send = async (explicitText) => {
             text: errText,
             time: nowTime(), tools: true,
           }]);
+          fetchSuggestions(text, errText);
         }
       } else {
         pushStep('Found relevant information!');
@@ -1190,6 +1198,7 @@ const send = async (explicitText) => {
           citations: data.citations || [],
           time: nowTime(), tools: true, source: 'kb',
         }]);
+        fetchSuggestions(text, data.response || '');
       }
     } catch (e) {
       console.error(e);
