@@ -295,7 +295,7 @@ function TopBar({ title = 'Route', titleAccent = ' 66', onSettings, onMenuOpen, 
 }
 
 /* ---------- Composer ---------- */
-function Composer({ value, onChange, onSend, isMobile }) {
+function Composer({ value, onChange, onSend, isMobile, model, setModel, models }) {
   const [phText, setPhText] = useState('');
   const [phIdx, setPhIdx] = useState(0);
   const [isDeleting, setIsDeleting] = useState(false);
@@ -350,6 +350,18 @@ function Composer({ value, onChange, onSend, isMobile }) {
             fontFamily: 'inherit',
           }}
         />
+        {models && model && (
+          <select value={model} onChange={e => setModel(e.target.value)} style={{
+            background: 'transparent', border: `1px solid ${T.border}`,
+            borderRadius: 20, padding: '4px 8px', fontSize: 11,
+            color: T.inkDim, cursor: 'pointer', outline: 'none',
+            flexShrink: 0, maxWidth: isMobile ? 78 : 120,
+          }}>
+            {models.map(m => (
+              <option key={m.id} value={m.id}>{isMobile ? m.short : m.label}</option>
+            ))}
+          </select>
+        )}
         <button className="liquid-hover" onClick={onSend} style={{
           width: 40, height: 40, borderRadius: '50%',
           background: T.mint, border: `1px solid ${T.mintDeep}`,
@@ -365,7 +377,7 @@ function Composer({ value, onChange, onSend, isMobile }) {
 }
 
 /* ---------- Home view ---------- */
-function HomeView({ onPick, draft, setDraft, onSend, onSettings, onMenuOpen, isMobile }) {
+function HomeView({ onPick, draft, setDraft, onSend, onSettings, onMenuOpen, isMobile, model, setModel, models }) {
   const windowWidth = useWindowWidth();
   const cards = [
     { title: 'Accommodations', body: 'Find the best verified hotels and motels along Route 66.' },
@@ -444,7 +456,7 @@ function HomeView({ onPick, draft, setDraft, onSend, onSettings, onMenuOpen, isM
           ))}
         </div>
       </div>
-      <Composer value={draft} onChange={setDraft} onSend={onSend} isMobile={isMobile} />
+      <Composer value={draft} onChange={setDraft} onSend={onSend} isMobile={isMobile} model={model} setModel={setModel} models={models} />
     </div>
   );
 }
@@ -512,7 +524,7 @@ function SearchStatus({ phase, steps }) {
   );
 }
 
-function ChatView({ messages, draft, setDraft, onSend, isLoading, searchPhase, searchSteps, onSettings, suggestions, onMenuOpen, isMobile }) {
+function ChatView({ messages, draft, setDraft, onSend, isLoading, searchPhase, searchSteps, onSettings, onMenuOpen, isMobile, model, setModel, models }) {
   const scrollRef = useRef(null);
 
   useEffect(() => {
@@ -541,22 +553,9 @@ function ChatView({ messages, draft, setDraft, onSend, isLoading, searchPhase, s
           {isLoading && searchPhase && (
             <SearchStatus phase={searchPhase} steps={searchSteps || []} />
           )}
-          {messages.length > 0 && messages[messages.length-1].from === 'ai' && !isLoading && (
-            <div className="slide-up" style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 10, marginBottom: 20 }}>
-              {suggestions.map(opt => (
-                <button key={opt} className="liquid-hover" onClick={() => onSend(opt)} style={{
-                  padding: '8px 14px', borderRadius: 16, border: `1px solid ${T.mintDeep}`,
-                  background: '#fff5ee', color: T.ink, fontSize: 12.5, cursor: 'pointer',
-                  boxShadow: '0 2px 6px rgba(0,0,0,0.03)'
-                }}>
-                  {opt}
-                </button>
-              ))}
-            </div>
-          )}
         </div>
       </div>
-      <Composer value={draft} onChange={setDraft} onSend={onSend} isMobile={isMobile} />
+      <Composer value={draft} onChange={setDraft} onSend={onSend} isMobile={isMobile} model={model} setModel={setModel} models={models} />
     </div>
   );
 }
@@ -1006,11 +1005,14 @@ function App() {
   const [searchPhase, setSearchPhase] = useState(null); // 'kb' | 'web' | null
   const [searchSteps, setSearchSteps] = useState([]);
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  const [suggestions, setSuggestions] = useState([
-    'Tell me more details',
-    'Can you put that in a table?',
-    'Give me a step-by-step roadmap',
-  ]);
+
+  const MODELS = [
+    { id: 'gemini-3-flash-preview',           label: 'Gemini Flash 3',   short: 'Gemini' },
+    { id: 'anthropic/claude-3-5-haiku',        label: 'Claude 3.5 Haiku', short: 'Claude' },
+    { id: 'openai/gpt-4o-mini',                label: 'GPT-4o Mini',      short: 'GPT-4o' },
+    { id: 'meta-llama/llama-3.1-8b-instruct',  label: 'Llama 3.1 8B',    short: 'Llama'  },
+  ];
+  const [model, setModel] = useState('gemini-3-flash-preview');
 
   // Tracks the current conversation ID for API calls without triggering effects
   const currentConvIdRef = useRef(null);
@@ -1085,24 +1087,6 @@ function App() {
     return NOT_FOUND_PATTERNS.some(p => text.toLowerCase().includes(p));
   };
 
-  const fetchSuggestions = async (userMsg, aiResponse) => {
-    try {
-      const res = await fetch(`${API_URL}/api/suggest`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message: userMsg, response: aiResponse }),
-      });
-      if (res.ok) {
-        const data = await res.json();
-        if (data.suggestions && data.suggestions.length >= 1) {
-          setSuggestions(data.suggestions.slice(0, 3));
-        }
-      }
-    } catch (e) {
-      // Keep current suggestions on failure
-    }
-  };
-
   const send = async (explicitText) => {
     const text = typeof explicitText === 'string' ? explicitText.trim() : draft.trim();
     if (!text || isLoading) return;
@@ -1127,7 +1111,7 @@ function App() {
       const res = await fetch(`${API_URL}/api/chat`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message: text, conversation_id: convIdToUse })
+        body: JSON.stringify({ message: text, conversation_id: convIdToUse, model })
       });
 
       if (!res.ok) {
@@ -1162,7 +1146,7 @@ function App() {
           const webRes = await fetch(`${API_URL}/api/web-search`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ message: text, conversation_id: webConvId })
+            body: JSON.stringify({ message: text, conversation_id: webConvId, model: 'gemini-3-flash-preview' })
           });
           const webData = webRes.ok ? await webRes.json() : null;
           pushStep('Synthesising answer...');
@@ -1178,7 +1162,6 @@ function App() {
             citations: (webData && webData.citations) || [],
             time: nowTime(), tools: true, source: 'web',
           }]);
-          fetchSuggestions(text, webResponseText);
         } catch (webErr) {
           console.error('Web search error:', webErr);
           const errText = "Web search is unavailable right now. The knowledge base also didn't have an answer for this. Please try Google directly.";
@@ -1187,7 +1170,6 @@ function App() {
             text: errText,
             time: nowTime(), tools: true,
           }]);
-          fetchSuggestions(text, errText);
         }
       } else {
         pushStep('Found relevant information!');
@@ -1198,7 +1180,6 @@ function App() {
           citations: data.citations || [],
           time: nowTime(), tools: true, source: 'kb',
         }]);
-        fetchSuggestions(text, data.response || '');
       }
     } catch (e) {
       console.error(e);
@@ -1268,8 +1249,8 @@ function App() {
         }}
       />
       <main style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden', minHeight: 0 }}>
-        {view === 'home' && <HomeView onPick={pickPrompt} draft={draft} setDraft={setDraft} onSend={send} onSettings={() => setView('settings')} onMenuOpen={handleMenuOpen} isMobile={isMobile} />}
-        {view === 'chat' && <ChatView messages={messages} draft={draft} setDraft={setDraft} onSend={send} isLoading={isLoading} searchPhase={searchPhase} searchSteps={searchSteps} onSettings={() => setView('settings')} suggestions={suggestions} onMenuOpen={handleMenuOpen} isMobile={isMobile} />}
+        {view === 'home' && <HomeView onPick={pickPrompt} draft={draft} setDraft={setDraft} onSend={send} onSettings={() => setView('settings')} onMenuOpen={handleMenuOpen} isMobile={isMobile} model={model} setModel={setModel} models={MODELS} />}
+        {view === 'chat' && <ChatView messages={messages} draft={draft} setDraft={setDraft} onSend={send} isLoading={isLoading} searchPhase={searchPhase} searchSteps={searchSteps} onSettings={() => setView('settings')} onMenuOpen={handleMenuOpen} isMobile={isMobile} model={model} setModel={setModel} models={MODELS} />}
         {view === 'settings' && <SettingsView onSettings={() => setView(activeConv ? 'chat' : 'home')} isMobile={isMobile} onMenuOpen={handleMenuOpen} />}
       </main>
     </div>

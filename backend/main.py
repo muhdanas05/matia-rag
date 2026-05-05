@@ -13,11 +13,14 @@ load_dotenv()
 
 API_KEY = os.getenv("GEMINI_API", "").strip()
 BASE = "https://generativelanguage.googleapis.com"
-MODEL = "gemini-2.5-flash"
+MODEL = "gemini-3-flash-preview"
 
 SUPABASE_URL = os.getenv("SUPABASE_URL", "")
 SUPABASE_KEY = os.getenv("SUPABASE_SERVICE_KEY", "")
 sb: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
+
+OPENROUTER_KEY = os.getenv("OPENROUTER_API_KEY", "").strip()
+OPENROUTER_BASE = "https://openrouter.ai/api/v1"
 
 
 def load_cfg() -> dict:
@@ -48,12 +51,11 @@ CATEGORY_MAP = {
 }
 
 STRICT_SYSTEM_PROMPT = """
-You are an expert travel guide assistant operating exclusively for europetrip.us. 
-Your sole purpose is to help users plan and understand their Route 66 road trip 
-using the knowledge base provided to you through retrieved document chunks. 
-You are not a general-purpose AI assistant. You are not a search engine. 
-You are a specialised, knowledge-bound travel concierge for one product: 
-the europetrip.us Route 66 guide.
+You are an expert travel guide assistant for Route 66 road trip planning.
+Your sole purpose is to help users plan and understand their Route 66 road trip
+using the knowledge base provided to you through retrieved document chunks.
+You are not a general-purpose AI assistant. You are not a search engine.
+You are a specialised, knowledge-bound travel concierge for the Route 66 guide.
 
 ════════════════════════════════════════
 SECTION 1 — IDENTITY & SCOPE
@@ -99,7 +101,7 @@ app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], all
 # Version endpoint — used to confirm Railway has the latest deployment
 @app.get("/api/version")
 async def version():
-    return {"version": "2.2", "features": ["kb-search", "web-search", "system-prompt-editor"]}
+    return {"version": "2.3", "features": ["kb-search", "web-search", "system-prompt-editor", "openrouter"]}
 
 
 class SystemPromptRequest(BaseModel):
@@ -130,6 +132,28 @@ async def reset_system_prompt():
 
 def api_headers() -> dict:
     return {"x-goog-api-key": API_KEY, "Content-Type": "application/json"}
+
+
+async def openrouter_chat(messages: list, model: str, system_prompt: str) -> str:
+    """Call OpenRouter API using OpenAI-compatible format."""
+    or_messages = [{"role": "system", "content": system_prompt}]
+    for m in messages:
+        role = "user" if m["role"] == "user" else "assistant"
+        or_messages.append({"role": role, "content": m["parts"][0]["text"]})
+    async with httpx.AsyncClient(timeout=60) as h:
+        r = await h.post(
+            f"{OPENROUTER_BASE}/chat/completions",
+            headers={
+                "Authorization": f"Bearer {OPENROUTER_KEY}",
+                "Content-Type": "application/json",
+                "HTTP-Referer": "https://matia-rag-production.up.railway.app",
+                "X-Title": "Route 66 AI",
+            },
+            json={"model": model, "messages": or_messages},
+        )
+        if r.status_code != 200:
+            raise HTTPException(status_code=r.status_code, detail=r.text)
+        return r.json()["choices"][0]["message"]["content"]
 
 
 def detect_category(filename: str) -> str:
@@ -373,154 +397,189 @@ async def get_messages(conv_id: str):
 class ChatRequest(BaseModel):
     message: str
     conversation_id: str | None = None
+    model: str = "gemini-3-flash-preview"
 
 
 @app.post("/api/chat")
 async def chat(req: ChatRequest):
+    use_gemini = req.model.startswith("gemini-")
     cfg = load_cfg()
-    if not cfg.get("name"):
-        raise HTTPException(status_code=400, detail="Create a store and upload files first")
 
-    store = cfg["name"]
+    # Load or create conversation in Supabase
+    try:
+        if req.conversation_id:
+            conv_id = req.conversation_id
+        else:
+            res = sb.table("conversations").insert({"title": req.message[:60]}).execute()
+            conv_id = res.data[0]["id"]
+        history_res = sb.table("messages").select("role,content").eq("conversation_id", conv_id).order("created_at").execute()
+        contents = [{"role": m["role"], "parts": [{"text": m["content"]}]} for m in history_res.data]
+    except Exception:
+        conv_id = req.conversation_id or "offline"
+        contents = []
 
-    # Load or create conversation
-    if req.conversation_id:
-        conv_id = req.conversation_id
-    else:
-        res = sb.table("conversations").insert({"title": req.message[:60]}).execute()
-        conv_id = res.data[0]["id"]
-
-    # Load history from Supabase
-    history_res = sb.table("messages").select("role,content").eq("conversation_id", conv_id).order("created_at").execute()
-    contents = [{"role": m["role"], "parts": [{"text": m["content"]}]} for m in history_res.data]
     contents.append({"role": "user", "parts": [{"text": req.message}]})
+    active_prompt = cfg.get("system_prompt", STRICT_SYSTEM_PROMPT)
 
-    async with httpx.AsyncClient(timeout=60) as h:
-        # Use custom system prompt from DB if set, otherwise fall back to default
-        active_prompt = cfg.get("system_prompt", STRICT_SYSTEM_PROMPT)
-        r = await h.post(
-            f"{BASE}/v1beta/models/{MODEL}:generateContent",
-            headers=api_headers(),
-            json={
-                "contents": contents,
-                "tools": [{"fileSearch": {"fileSearchStoreNames": [store]}}],
-                "systemInstruction": {"parts": [{"text": active_prompt}]},
-            },
-        )
-        if r.status_code != 200:
-            raise HTTPException(status_code=r.status_code, detail=r.text)
-
-        d = r.json()
-        candidate = d.get("candidates", [{}])[0]
+    if not use_gemini:
+        # ── OpenRouter path (no fileSearch — external models) ────────────────
+        try:
+            text = await openrouter_chat(contents[:-1], req.model, active_prompt)
+            citations = []
+        except Exception as e:
+            raise HTTPException(status_code=502, detail=f"OpenRouter error: {e}")
+    else:
+        # ── Gemini + fileSearch path (RAG) ───────────────────────────────────
+        store = cfg.get("name")
+        if not store:
+            raise HTTPException(status_code=400, detail="No knowledge base store found. Go to Settings to create a store and upload files.")
 
         try:
-            text = candidate["content"]["parts"][0]["text"]
-        except (KeyError, IndexError):
-            text = "No response generated."
+            async with httpx.AsyncClient(timeout=60) as h:
+                r = await h.post(
+                    f"{BASE}/v1beta/models/{req.model}:generateContent",
+                    headers=api_headers(),
+                    json={
+                        "contents": contents,
+                        "tools": [{"fileSearch": {"fileSearchStoreNames": [store]}}],
+                        "systemInstruction": {"parts": [{"text": active_prompt}]},
+                    },
+                )
+                if r.status_code != 200:
+                    raise HTTPException(status_code=r.status_code, detail=r.text)
 
-        citations = []
-        grounding = candidate.get("groundingMetadata", {})
-        
-        # 1. Add file search grounding chunks
-        for chunk in grounding.get("groundingChunks", []):
-            ctx = chunk.get("retrievedContext", {})
-            title = ctx.get("title", "")
-            snippet = ctx.get("text", "")
-            if title or snippet:
-                citations.append({"source": title, "snippet": snippet})
-                
-        # 2. Add web search grounding chunks
-        for chunk in grounding.get("groundingChunks", []):
-            web = chunk.get("web", {})
-            uri = web.get("uri", "")
-            title = web.get("title", "")
-            if uri or title:
-                citations.append({"source": f"Web: {title}", "snippet": uri})
+                d = r.json()
+                candidate = d.get("candidates", [{}])[0]
+                text = candidate.get("content", {}).get("parts", [{}])[0].get("text", "No response generated.")
 
-        # Persist to Supabase ONLY if it's a real answer (not a fallback)
-        NOT_FOUND_PHRASES = ["not found", "isn't covered", "not covered", "not in our", "not available in"]
-        is_fallback = any(p in text.lower() for p in NOT_FOUND_PHRASES)
+                citations = []
+                grounding = candidate.get("groundingMetadata", {})
+                for chunk in grounding.get("groundingChunks", []):
+                    ctx = chunk.get("retrievedContext", {})
+                    if ctx.get("title") or ctx.get("text"):
+                        citations.append({"source": ctx.get("title", ""), "snippet": ctx.get("text", "")})
+                for chunk in grounding.get("groundingChunks", []):
+                    web = chunk.get("web", {})
+                    if web.get("uri") or web.get("title"):
+                        citations.append({"source": f"Web: {web.get('title', '')}", "snippet": web.get("uri", "")})
 
+        except HTTPException:
+            raise
+        except Exception as e:
+            raise HTTPException(status_code=503, detail=f"Knowledge base search unavailable: {str(e)}")
+
+    # Persist to Supabase ONLY if it's a real answer (not a fallback)
+    NOT_FOUND_PHRASES = ["not found", "isn't covered", "not covered", "not in our", "not available in"]
+    is_fallback = any(p in text.lower() for p in NOT_FOUND_PHRASES)
+    try:
         if not is_fallback:
             sb.table("messages").insert([
                 {"conversation_id": conv_id, "role": "user",  "content": req.message, "citations": []},
                 {"conversation_id": conv_id, "role": "model", "content": text, "citations": citations},
             ]).execute()
         else:
-            # If fallback, still save user message so conversation is created/updated, but skip model fallback text
             sb.table("messages").insert([
-                {"conversation_id": conv_id, "role": "user",  "content": req.message, "citations": []},
+                {"conversation_id": conv_id, "role": "user", "content": req.message, "citations": []},
             ]).execute()
+    except Exception:
+        pass
 
-        return {"response": text, "citations": citations, "conversation_id": conv_id}
+    return {"response": text, "citations": citations, "conversation_id": conv_id}
 
 
 
 # ── Web Search (Google Search grounding, separate from KB) ────────────────────
 
 WEB_SEARCH_SYSTEM_PROMPT = """
-You are a helpful travel assistant for europetrip.us. The user's question was NOT found in the Route 66 knowledge base, so you are now searching the open web to find the best answer.
-
-RULES:
-- Always start your response with exactly: "From the web:"
-- Provide accurate, concise, factual information from your Google Search results.
-- Keep responses short and structured. Use bullet points where helpful.
-- Do not fabricate information. Only state what you found.
-- If web search also yields nothing useful, say: "We couldn't find reliable information on this online either. Please check Google Maps or TripAdvisor directly."
+You are a helpful Route 66 travel assistant. The user's question was not found in the knowledge base, so search the web and provide accurate, concise information.
+- Start your response with: "From the web:"
+- Use bullet points where helpful.
+- If nothing useful found, say: "We couldn't find reliable information on this. Please try Google Maps or TripAdvisor directly."
 """
 
 
 @app.post("/api/web-search")
 async def web_search_endpoint(req: ChatRequest):
-    """Web search using Gemini + Google Search grounding. Saves only model response (user already saved by /api/chat)."""
+    """Web search using Gemini + Google Search grounding with plain-Gemini fallback."""
     conv_id = req.conversation_id
-    if not conv_id:
-        res = sb.table("conversations").insert({"title": req.message[:60]}).execute()
-        conv_id = res.data[0]["id"]
+    try:
+        if not conv_id:
+            res = sb.table("conversations").insert({"title": req.message[:60]}).execute()
+            conv_id = res.data[0]["id"]
+        history_res = sb.table("messages").select("role,content").eq("conversation_id", conv_id).order("created_at").execute()
+        contents = [{"role": m["role"], "parts": [{"text": m["content"]}]} for m in history_res.data]
+    except Exception:
+        contents = []
+        conv_id = conv_id or "offline"
 
-    # Load conversation history
-    history_res = sb.table("messages").select("role,content").eq("conversation_id", conv_id).order("created_at").execute()
-    contents = [{"role": m["role"], "parts": [{"text": m["content"]}]} for m in history_res.data]
-    # Append user message (already saved to DB by /api/chat, just needed for context)
     contents.append({"role": "user", "parts": [{"text": req.message}]})
+    text = None
+    citations = []
 
-    async with httpx.AsyncClient(timeout=60) as h:
-        r = await h.post(
-            f"{BASE}/v1beta/models/{MODEL}:generateContent",
-            headers=api_headers(),
-            json={
-                "contents": contents,
-                "tools": [{"googleSearch": {}}],
-                "systemInstruction": {"parts": [{"text": WEB_SEARCH_SYSTEM_PROMPT}]},
-            },
-        )
-        if r.status_code != 200:
-            raise HTTPException(status_code=r.status_code, detail=r.text)
+    # Attempt 1: Gemini + Google Search grounding
+    try:
+        async with httpx.AsyncClient(timeout=60) as h:
+            r = await h.post(
+                f"{BASE}/v1beta/models/{MODEL}:generateContent",
+                headers=api_headers(),
+                json={
+                    "contents": contents,
+                    "tools": [{"googleSearch": {}}],
+                    "systemInstruction": {"parts": [{"text": WEB_SEARCH_SYSTEM_PROMPT}]},
+                },
+            )
+            if r.status_code == 200:
+                d = r.json()
+                candidate = d.get("candidates", [{}])[0]
+                text = candidate.get("content", {}).get("parts", [{}])[0].get("text")
+                for chunk in candidate.get("groundingMetadata", {}).get("groundingChunks", []):
+                    web = chunk.get("web", {})
+                    if web.get("uri") or web.get("title"):
+                        citations.append({"source": f"\U0001f310 {web.get('title', '')}", "snippet": web.get("uri", "")})
+    except Exception:
+        pass
 
-        d = r.json()
-        candidate = d.get("candidates", [{}])[0]
-
+    # Attempt 2: Fallback — plain Gemini without search tool
+    if not text:
         try:
-            text = candidate["content"]["parts"][0]["text"]
-        except (KeyError, IndexError):
-            text = "We couldn't find reliable information on this online either. Please check Google Maps or TripAdvisor directly."
+            async with httpx.AsyncClient(timeout=60) as h:
+                r = await h.post(
+                    f"{BASE}/v1beta/models/{MODEL}:generateContent",
+                    headers=api_headers(),
+                    json={
+                        "contents": contents,
+                        "systemInstruction": {"parts": [{"text": WEB_SEARCH_SYSTEM_PROMPT}]},
+                    },
+                )
+                if r.status_code == 200:
+                    d = r.json()
+                    candidate = d.get("candidates", [{}])[0]
+                    text = candidate.get("content", {}).get("parts", [{}])[0].get("text")
+        except Exception:
+            pass
 
-        # Extract web citations from grounding metadata
-        citations = []
-        grounding = candidate.get("groundingMetadata", {})
-        for chunk in grounding.get("groundingChunks", []):
-            web = chunk.get("web", {})
-            uri = web.get("uri", "")
-            title = web.get("title", "")
-            if uri or title:
-                citations.append({"source": f"\U0001f310 {title}", "snippet": uri})
+    if not text:
+        text = "Web search is currently unavailable. Please try Google Maps or TripAdvisor directly."
 
-        # Save only the model's web response (user message was already persisted by /api/chat)
+    try:
         sb.table("messages").insert([
             {"conversation_id": conv_id, "role": "model", "content": text, "citations": citations},
         ]).execute()
+    except Exception:
+        pass
 
-        return {"response": text, "citations": citations, "conversation_id": conv_id, "source": "web"}
+    return {"response": text, "citations": citations, "conversation_id": conv_id, "source": "web"}
+
+
+# ── Available models ───────────────────────────────────────────────────────────
+@app.get("/api/models")
+async def list_models():
+    return {"models": [
+        {"id": "gemini-3-flash-preview",             "name": "Gemini Flash 3",      "provider": "google"},
+        {"id": "anthropic/claude-3-5-haiku",          "name": "Claude 3.5 Haiku",   "provider": "openrouter"},
+        {"id": "openai/gpt-4o-mini",                  "name": "GPT-4o Mini",        "provider": "openrouter"},
+        {"id": "meta-llama/llama-3.1-8b-instruct",    "name": "Llama 3.1 8B",       "provider": "openrouter"},
+    ]}
 
 
 # ── Static UI ──────────────────────────────────────────────────────────────────
