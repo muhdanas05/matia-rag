@@ -1,28 +1,51 @@
 import os
+import json
+import hmac
+import hashlib
+import base64
+import secrets
+import string
 import mimetypes
 import httpx
 from pathlib import Path
-from fastapi import FastAPI, UploadFile, File, HTTPException, BackgroundTasks
+from fastapi import FastAPI, UploadFile, File, HTTPException, BackgroundTasks, Request, Header, Depends
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from dotenv import load_dotenv
 from supabase import create_client, Client
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.util import get_remote_address
+from slowapi.errors import RateLimitExceeded
 
 load_dotenv()
 
-API_KEY = os.getenv("GEMINI_API", "").strip()
-BASE = "https://generativelanguage.googleapis.com"
-MODEL = "gemini-3-flash-preview"
+API_KEY           = os.getenv("GEMINI_API", "").strip()
+BASE              = "https://generativelanguage.googleapis.com"
+MODEL             = "gemini-3-flash-preview"
 
-SUPABASE_URL = os.getenv("SUPABASE_URL", "")
-SUPABASE_KEY = os.getenv("SUPABASE_SERVICE_KEY", "")
-sb: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
+SUPABASE_URL      = os.getenv("SUPABASE_URL", "")
+SUPABASE_KEY      = os.getenv("SUPABASE_SERVICE_KEY", "")
+sb: Client        = create_client(SUPABASE_URL, SUPABASE_KEY)
 
-OPENROUTER_KEY = os.getenv("OPENROUTER_API_KEY", "").strip()
-OPENROUTER_BASE = "https://openrouter.ai/api/v1"
+OPENROUTER_KEY    = os.getenv("OPENROUTER_API_KEY", "").strip()
+OPENROUTER_BASE   = "https://openrouter.ai/api/v1"
+
+ADMIN_SECRET      = os.getenv("ADMIN_SECRET", "").strip()
+SHOPIFY_SECRET    = os.getenv("SHOPIFY_WEBHOOK_SECRET", "").strip()
+SITE_URL          = os.getenv("SITE_URL", "https://europetripus.netlify.app").strip()
+EMAIL_API_KEY     = os.getenv("EMAIL_API_KEY", "").strip()
 
 
+# ── Rate limiter ───────────────────────────────────────────────────────────────
+def _rate_key(request: Request) -> str:
+    return request.headers.get("x-access-code") or get_remote_address(request)
+
+limiter = Limiter(key_func=_rate_key)
+
+
+# ── Supabase config helpers ────────────────────────────────────────────────────
 def load_cfg() -> dict:
     res = sb.table("store_config").select("key,value").execute()
     return {r["key"]: r["value"] for r in res.data}
@@ -31,9 +54,9 @@ def load_cfg() -> dict:
 def save_cfg(d: dict):
     for key, value in d.items():
         sb.table("store_config").upsert({"key": key, "value": value}).execute()
-    # If empty dict passed, clear all keys
     if not d:
         sb.table("store_config").delete().neq("key", "").execute()
+
 
 SUPPORTED_EXTS = {".pdf", ".md", ".txt", ".docx", ".xlsx", ".csv", ".json", ".html", ".xml"}
 
@@ -81,7 +104,7 @@ RULE 11 — LIVE DATA SIGNAL. Only use this for questions that DIRECTLY ask for 
 ════════════════════════════════════════
 SECTION 3 — FORMAT & LENGTH
 ════════════════════════════════════════
-- Keep your response extremely concise, short, and use structured markdown like tables, quotes, or ordered lists for roadmaps where appropriate. 
+- Keep your response extremely concise, short, and use structured markdown like tables, quotes, or ordered lists for roadmaps where appropriate.
 - Respond in short sentences. Do not blow full messages unless the user asks for a brief or an explanation.
 - Use bullet points or numbered lists naturally.
 
@@ -97,39 +120,35 @@ If the information is not in the guides:
 ingest_state: dict = {"total": 0, "done": 0, "failed": [], "current": "", "running": False}
 
 app = FastAPI()
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
-# Version endpoint — used to confirm Railway has the latest deployment
-@app.get("/api/version")
-async def version():
-    return {"version": "2.3", "features": ["kb-search", "web-search", "system-prompt-editor", "openrouter"]}
+
+# ── Auth dependencies ──────────────────────────────────────────────────────────
+
+async def verify_code(x_access_code: str = Header(None)) -> dict:
+    """Validate access code from X-Access-Code header."""
+    if not x_access_code:
+        raise HTTPException(status_code=401, detail="Access code required")
+    res = sb.table("access_codes").select("*").eq("code", x_access_code.strip().upper()).eq("is_active", True).execute()
+    if not res.data:
+        raise HTTPException(status_code=401, detail="Invalid or inactive access code")
+    # Fire-and-forget last_used update
+    try:
+        sb.table("access_codes").update({"last_used_at": "now()"}).eq("code", x_access_code.strip().upper()).execute()
+    except Exception:
+        pass
+    return res.data[0]
 
 
-class SystemPromptRequest(BaseModel):
-    prompt: str
+async def verify_admin(x_admin_secret: str = Header(None)):
+    """Validate admin secret from X-Admin-Secret header."""
+    if not ADMIN_SECRET or x_admin_secret != ADMIN_SECRET:
+        raise HTTPException(status_code=403, detail="Forbidden")
 
-@app.get("/api/system-prompt")
-async def get_system_prompt():
-    """Return the currently active system prompt (custom or default)."""
-    cfg = load_cfg()
-    return {"prompt": cfg.get("system_prompt", STRICT_SYSTEM_PROMPT)}
 
-@app.post("/api/system-prompt")
-async def set_system_prompt(req: SystemPromptRequest):
-    """Save a custom system prompt to the DB. Takes effect immediately on next /api/chat call."""
-    if not req.prompt or len(req.prompt.strip()) < 20:
-        raise HTTPException(status_code=400, detail="Prompt is too short")
-    save_cfg({"system_prompt": req.prompt.strip()})
-    return {"status": "saved", "prompt": req.prompt.strip()}
-
-@app.delete("/api/system-prompt")
-async def reset_system_prompt():
-    """Reset system prompt to the built-in default."""
-    cfg = load_cfg()
-    if "system_prompt" in cfg:
-        sb.table("store_config").delete().eq("key", "system_prompt").execute()
-    return {"status": "reset", "prompt": STRICT_SYSTEM_PROMPT}
-
+# ── Helpers ────────────────────────────────────────────────────────────────────
 
 def api_headers() -> dict:
     return {"x-goog-api-key": API_KEY, "Content-Type": "application/json"}
@@ -155,6 +174,41 @@ async def openrouter_chat(messages: list, model: str, system_prompt: str) -> str
         if r.status_code != 200:
             raise HTTPException(status_code=r.status_code, detail=r.text)
         return r.json()["choices"][0]["message"]["content"]
+
+
+async def send_access_email(email: str, name: str, code: str):
+    """Send access code email. Provider configured via EMAIL_API_KEY env var."""
+    if not EMAIL_API_KEY or not email:
+        return
+    login_url = f"{SITE_URL}?code={code}"
+    # Resend implementation — swap for SendGrid/Mailgun as needed
+    try:
+        async with httpx.AsyncClient(timeout=15) as h:
+            await h.post(
+                "https://api.resend.com/emails",
+                headers={"Authorization": f"Bearer {EMAIL_API_KEY}", "Content-Type": "application/json"},
+                json={
+                    "from": "Route 66 AI <noreply@europetripus.com>",
+                    "to": [email],
+                    "subject": "Your Route 66 AI Access Code",
+                    "html": f"""
+                        <h2>Welcome, {name or 'Traveler'}!</h2>
+                        <p>Your access code for the Route 66 AI assistant is:</p>
+                        <h1 style="letter-spacing:4px;color:#FA7315">{code}</h1>
+                        <p><a href="{login_url}">Click here to log in</a> or visit {SITE_URL} and enter your code.</p>
+                        <p>Keep this code safe — it gives you lifetime access.</p>
+                    """,
+                },
+            )
+    except Exception:
+        pass
+
+
+def generate_code() -> str:
+    chars = string.ascii_uppercase + string.digits
+    part1 = "".join(secrets.choice(chars) for _ in range(4))
+    part2 = "".join(secrets.choice(chars) for _ in range(4))
+    return f"RT66-{part1}-{part2}"
 
 
 def detect_category(filename: str) -> str:
@@ -202,6 +256,151 @@ async def upload_bytes_to_store(store: str, filename: str, data: bytes, mime: st
         return r2.json()
 
 
+# ── Version ────────────────────────────────────────────────────────────────────
+
+@app.get("/api/version")
+async def version():
+    return {"version": "3.0", "features": ["kb-search", "web-search", "system-prompt-editor", "openrouter", "auth", "admin"]}
+
+
+# ── Auth endpoints (public) ────────────────────────────────────────────────────
+
+class ValidateCodeRequest(BaseModel):
+    code: str
+
+@app.post("/api/validate-code")
+async def validate_code(req: ValidateCodeRequest):
+    """Public endpoint — check if access code is valid without requiring auth header."""
+    code = req.code.strip().upper()
+    res = sb.table("access_codes").select("code,name,is_active").eq("code", code).execute()
+    if not res.data or not res.data[0]["is_active"]:
+        raise HTTPException(status_code=401, detail="Invalid or inactive access code")
+    return {"valid": True, "name": res.data[0].get("name", "")}
+
+
+# ── Shopify webhook ────────────────────────────────────────────────────────────
+
+@app.post("/api/provision")
+async def provision(request: Request):
+    """Shopify orders/paid webhook — generate access code and email customer."""
+    body = await request.body()
+
+    # Verify Shopify HMAC signature
+    if SHOPIFY_SECRET:
+        sig = request.headers.get("X-Shopify-Hmac-Sha256", "")
+        expected = base64.b64encode(
+            hmac.new(SHOPIFY_SECRET.encode(), body, hashlib.sha256).digest()
+        ).decode()
+        if not hmac.compare_digest(sig, expected):
+            raise HTTPException(status_code=401, detail="Invalid Shopify signature")
+
+    order = json.loads(body)
+    billing = order.get("billing_address") or {}
+    name    = billing.get("name") or order.get("customer", {}).get("first_name", "")
+    email   = order.get("email", "")
+    country = billing.get("country", "")
+
+    # Generate unique code (retry on collision)
+    for _ in range(5):
+        code = generate_code()
+        try:
+            sb.table("access_codes").insert({
+                "code": code, "name": name, "email": email, "country": country
+            }).execute()
+            break
+        except Exception:
+            continue
+
+    await send_access_email(email, name, code)
+    return {"status": "provisioned", "code": code}
+
+
+# ── Admin endpoints ────────────────────────────────────────────────────────────
+
+@app.get("/api/admin/codes")
+async def admin_list_codes(_=Depends(verify_admin)):
+    res = sb.table("access_codes").select("*").order("created_at", desc=True).execute()
+    return res.data
+
+
+class AdminCodeRequest(BaseModel):
+    name: str = ""
+    email: str = ""
+    country: str = ""
+
+@app.post("/api/admin/codes")
+async def admin_create_code(req: AdminCodeRequest, _=Depends(verify_admin)):
+    for _ in range(5):
+        code = generate_code()
+        try:
+            res = sb.table("access_codes").insert({
+                "code": code, "name": req.name, "email": req.email, "country": req.country
+            }).execute()
+            if res.data:
+                # Send email if address provided
+                if req.email:
+                    await send_access_email(req.email, req.name, code)
+                return res.data[0]
+        except Exception:
+            continue
+    raise HTTPException(status_code=500, detail="Failed to generate unique code")
+
+
+class AdminCodePatch(BaseModel):
+    name: str | None = None
+    email: str | None = None
+    country: str | None = None
+    is_active: bool | None = None
+
+@app.patch("/api/admin/codes/{code}")
+async def admin_update_code(code: str, req: AdminCodePatch, _=Depends(verify_admin)):
+    updates = {k: v for k, v in req.model_dump().items() if v is not None}
+    if not updates:
+        raise HTTPException(status_code=400, detail="Nothing to update")
+    res = sb.table("access_codes").update(updates).eq("code", code.upper()).execute()
+    return res.data[0] if res.data else {}
+
+
+@app.delete("/api/admin/codes/{code}")
+async def admin_delete_code(code: str, _=Depends(verify_admin)):
+    sb.table("access_codes").delete().eq("code", code.upper()).execute()
+    return {"deleted": True}
+
+
+@app.get("/api/admin/stats")
+async def admin_stats(_=Depends(verify_admin)):
+    codes = sb.table("access_codes").select("is_active,messages_sent").execute().data
+    total = len(codes)
+    active = sum(1 for c in codes if c["is_active"])
+    total_msgs = sum(c["messages_sent"] or 0 for c in codes)
+    return {"total_codes": total, "active_codes": active, "total_messages": total_msgs}
+
+
+# ── System prompt ──────────────────────────────────────────────────────────────
+
+class SystemPromptRequest(BaseModel):
+    prompt: str
+
+@app.get("/api/system-prompt")
+async def get_system_prompt():
+    cfg = load_cfg()
+    return {"prompt": cfg.get("system_prompt", STRICT_SYSTEM_PROMPT)}
+
+@app.post("/api/system-prompt")
+async def set_system_prompt(req: SystemPromptRequest):
+    if not req.prompt or len(req.prompt.strip()) < 20:
+        raise HTTPException(status_code=400, detail="Prompt is too short")
+    save_cfg({"system_prompt": req.prompt.strip()})
+    return {"status": "saved", "prompt": req.prompt.strip()}
+
+@app.delete("/api/system-prompt")
+async def reset_system_prompt():
+    cfg = load_cfg()
+    if "system_prompt" in cfg:
+        sb.table("store_config").delete().eq("key", "system_prompt").execute()
+    return {"status": "reset", "prompt": STRICT_SYSTEM_PROMPT}
+
+
 # ── Store ──────────────────────────────────────────────────────────────────────
 
 @app.post("/api/store")
@@ -240,24 +439,20 @@ async def delete_store():
     if not cfg.get("name"):
         raise HTTPException(status_code=400, detail="No store exists")
     async with httpx.AsyncClient(timeout=30) as h:
-        r = await h.delete(
-            f"{BASE}/v1beta/{cfg['name']}?force=true",
-            headers=api_headers(),
-        )
+        r = await h.delete(f"{BASE}/v1beta/{cfg['name']}?force=true", headers=api_headers())
         if r.status_code not in (200, 204):
             raise HTTPException(status_code=r.status_code, detail=r.text)
     save_cfg({})
     return {"deleted": True}
 
 
-# ── Single file upload ─────────────────────────────────────────────────────────
+# ── File upload ────────────────────────────────────────────────────────────────
 
 @app.post("/api/upload")
 async def upload_file(file: UploadFile = File(...)):
     cfg = load_cfg()
     if not cfg.get("name"):
         raise HTTPException(status_code=400, detail="Create a store first")
-
     store = cfg["name"]
     data = await file.read()
     ext = Path(file.filename or "").suffix.lower()
@@ -276,7 +471,7 @@ async def upload_file(file: UploadFile = File(...)):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-# ── Bulk folder ingest ─────────────────────────────────────────────────────────
+# ── Bulk ingest ────────────────────────────────────────────────────────────────
 
 class IngestRequest(BaseModel):
     folder_path: str
@@ -286,9 +481,7 @@ async def _run_ingest(folder_path: str, store: str):
     global ingest_state
     folder = Path(folder_path)
     files = [f for f in folder.rglob("*") if f.is_file() and f.suffix.lower() in SUPPORTED_EXTS]
-
     ingest_state = {"total": len(files), "done": 0, "failed": [], "current": "", "running": True}
-
     for f in files:
         ingest_state["current"] = f.name
         mime = {".md": "text/plain", ".txt": "text/plain", ".csv": "text/plain",
@@ -301,12 +494,10 @@ async def _run_ingest(folder_path: str, store: str):
             {"key": "source", "stringValue": "route66_corpus"},
         ]
         try:
-            data = f.read_bytes()
-            await upload_bytes_to_store(store, f.name, data, mime, metadata)
+            await upload_bytes_to_store(store, f.name, f.read_bytes(), mime, metadata)
             ingest_state["done"] += 1
         except Exception as e:
             ingest_state["failed"].append({"file": f.name, "error": str(e)[:200]})
-
     ingest_state["running"] = False
     ingest_state["current"] = ""
 
@@ -358,37 +549,54 @@ async def delete_file(file_id: str):
     return {"deleted": True}
 
 
-# ── Conversations (Supabase) ───────────────────────────────────────────────────
+# ── Conversations ──────────────────────────────────────────────────────────────
 
 @app.get("/api/conversations")
-async def list_conversations():
-    res = sb.table("conversations").select("id,title,updated_at").order("updated_at", desc=True).limit(50).execute()
+async def list_conversations(code=Depends(verify_code)):
+    res = (
+        sb.table("conversations")
+        .select("id,title,updated_at")
+        .eq("access_code", code["code"])
+        .order("updated_at", desc=True)
+        .limit(50)
+        .execute()
+    )
     return res.data
 
 
 @app.post("/api/conversations")
-async def create_conversation():
-    res = sb.table("conversations").insert({"title": "New conversation"}).execute()
+async def create_conversation(code=Depends(verify_code)):
+    res = sb.table("conversations").insert({"title": "New conversation", "access_code": code["code"]}).execute()
     return res.data[0]
 
 
 @app.patch("/api/conversations/{conv_id}")
-async def rename_conversation(conv_id: str, body: dict):
+async def rename_conversation(conv_id: str, body: dict, code=Depends(verify_code)):
     title = body.get("title", "").strip()
     if not title:
         raise HTTPException(status_code=400, detail="Title required")
-    res = sb.table("conversations").update({"title": title}).eq("id", conv_id).execute()
+    res = (
+        sb.table("conversations")
+        .update({"title": title})
+        .eq("id", conv_id)
+        .eq("access_code", code["code"])
+        .execute()
+    )
     return res.data[0] if res.data else {}
 
 
 @app.delete("/api/conversations/{conv_id}")
-async def delete_conversation(conv_id: str):
-    sb.table("conversations").delete().eq("id", conv_id).execute()
+async def delete_conversation(conv_id: str, code=Depends(verify_code)):
+    sb.table("conversations").delete().eq("id", conv_id).eq("access_code", code["code"]).execute()
     return {"deleted": True}
 
 
 @app.get("/api/conversations/{conv_id}/messages")
-async def get_messages(conv_id: str):
+async def get_messages(conv_id: str, code=Depends(verify_code)):
+    # Verify conversation belongs to this user
+    conv = sb.table("conversations").select("id").eq("id", conv_id).eq("access_code", code["code"]).execute()
+    if not conv.data:
+        raise HTTPException(status_code=403, detail="Access denied")
     res = sb.table("messages").select("*").eq("conversation_id", conv_id).order("created_at").execute()
     return res.data
 
@@ -402,16 +610,17 @@ class ChatRequest(BaseModel):
 
 
 @app.post("/api/chat")
-async def chat(req: ChatRequest):
+@limiter.limit("10/minute")
+async def chat(request: Request, req: ChatRequest, code=Depends(verify_code)):
     use_gemini = req.model.startswith("gemini-")
     cfg = load_cfg()
 
-    # Load or create conversation in Supabase
+    # Load or create conversation — scoped to access_code
     try:
         if req.conversation_id:
             conv_id = req.conversation_id
         else:
-            res = sb.table("conversations").insert({"title": req.message[:60]}).execute()
+            res = sb.table("conversations").insert({"title": req.message[:60], "access_code": code["code"]}).execute()
             conv_id = res.data[0]["id"]
         history_res = sb.table("messages").select("role,content").eq("conversation_id", conv_id).order("created_at").execute()
         contents = [{"role": m["role"], "parts": [{"text": m["content"]}]} for m in history_res.data]
@@ -423,18 +632,15 @@ async def chat(req: ChatRequest):
     active_prompt = cfg.get("system_prompt", STRICT_SYSTEM_PROMPT)
 
     if not use_gemini:
-        # ── OpenRouter path (no fileSearch — external models) ────────────────
         try:
             text = await openrouter_chat(contents, req.model, active_prompt)
             citations = []
         except Exception as e:
             raise HTTPException(status_code=502, detail=f"OpenRouter error: {e}")
     else:
-        # ── Gemini + fileSearch path (RAG) ───────────────────────────────────
         store = cfg.get("name")
         if not store:
-            raise HTTPException(status_code=400, detail="No knowledge base store found. Go to Settings to create a store and upload files.")
-
+            raise HTTPException(status_code=400, detail="No knowledge base store found. Go to Settings to create a store.")
         try:
             async with httpx.AsyncClient(timeout=60) as h:
                 r = await h.post(
@@ -448,11 +654,9 @@ async def chat(req: ChatRequest):
                 )
                 if r.status_code != 200:
                     raise HTTPException(status_code=r.status_code, detail=r.text)
-
                 d = r.json()
                 candidate = d.get("candidates", [{}])[0]
                 text = candidate.get("content", {}).get("parts", [{}])[0].get("text", "No response generated.")
-
                 citations = []
                 grounding = candidate.get("groundingMetadata", {})
                 for chunk in grounding.get("groundingChunks", []):
@@ -463,13 +667,12 @@ async def chat(req: ChatRequest):
                     web = chunk.get("web", {})
                     if web.get("uri") or web.get("title"):
                         citations.append({"source": f"Web: {web.get('title', '')}", "snippet": web.get("uri", "")})
-
         except HTTPException:
             raise
         except Exception as e:
             raise HTTPException(status_code=503, detail=f"Knowledge base search unavailable: {str(e)}")
 
-    # Persist to Supabase ONLY if it's a real answer (not a fallback)
+    # Persist messages
     NOT_FOUND_PHRASES = ["not found", "isn't covered", "not covered", "not in our", "not available in"]
     is_fallback = any(p in text.lower() for p in NOT_FOUND_PHRASES)
     try:
@@ -482,14 +685,15 @@ async def chat(req: ChatRequest):
             sb.table("messages").insert([
                 {"conversation_id": conv_id, "role": "user", "content": req.message, "citations": []},
             ]).execute()
+        # Increment messages_sent counter
+        sb.table("access_codes").update({"messages_sent": (code["messages_sent"] or 0) + 1}).eq("code", code["code"]).execute()
     except Exception:
         pass
 
     return {"response": text, "citations": citations, "conversation_id": conv_id}
 
 
-
-# ── Web Search (Google Search grounding, separate from KB) ────────────────────
+# ── Web Search ─────────────────────────────────────────────────────────────────
 
 WEB_SEARCH_SYSTEM_PROMPT = """
 You are a helpful Route 66 travel assistant. The user's question was not found in the knowledge base, so search the web and provide accurate, concise information.
@@ -500,12 +704,12 @@ You are a helpful Route 66 travel assistant. The user's question was not found i
 
 
 @app.post("/api/web-search")
-async def web_search_endpoint(req: ChatRequest):
-    """Web search using Gemini + Google Search grounding with plain-Gemini fallback."""
+@limiter.limit("10/minute")
+async def web_search_endpoint(request: Request, req: ChatRequest, code=Depends(verify_code)):
     conv_id = req.conversation_id
     try:
         if not conv_id:
-            res = sb.table("conversations").insert({"title": req.message[:60]}).execute()
+            res = sb.table("conversations").insert({"title": req.message[:60], "access_code": code["code"]}).execute()
             conv_id = res.data[0]["id"]
         history_res = sb.table("messages").select("role,content").eq("conversation_id", conv_id).order("created_at").execute()
         contents = [{"role": m["role"], "parts": [{"text": m["content"]}]} for m in history_res.data]
@@ -540,7 +744,7 @@ async def web_search_endpoint(req: ChatRequest):
     except Exception:
         pass
 
-    # Attempt 2: Fallback — plain Gemini without search tool
+    # Attempt 2: Fallback — plain Gemini
     if not text:
         try:
             async with httpx.AsyncClient(timeout=60) as h:
@@ -573,13 +777,14 @@ async def web_search_endpoint(req: ChatRequest):
 
 
 # ── Available models ───────────────────────────────────────────────────────────
+
 @app.get("/api/models")
 async def list_models():
     return {"models": [
-        {"id": "gemini-3-flash-preview",             "name": "Gemini Flash 3",      "provider": "google"},
-        {"id": "anthropic/claude-3-5-haiku",          "name": "Claude 3.5 Haiku",   "provider": "openrouter"},
-        {"id": "openai/gpt-4o-mini",                  "name": "GPT-4o Mini",        "provider": "openrouter"},
-        {"id": "meta-llama/llama-3.1-8b-instruct",    "name": "Llama 3.1 8B",       "provider": "openrouter"},
+        {"id": "gemini-3-flash-preview",          "name": "Gemini Flash 3",    "provider": "google"},
+        {"id": "anthropic/claude-3-5-haiku",       "name": "Claude 3.5 Haiku", "provider": "openrouter"},
+        {"id": "openai/gpt-4o-mini",               "name": "GPT-4o Mini",      "provider": "openrouter"},
+        {"id": "meta-llama/llama-3.1-8b-instruct", "name": "Llama 3.1 8B",     "provider": "openrouter"},
     ]}
 
 

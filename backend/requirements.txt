@@ -4,3 +4,4 @@ python-dotenv
 httpx
 python-multipart
 supabase
+slowapi

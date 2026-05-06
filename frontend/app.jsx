@@ -214,6 +214,26 @@ function Sidebar({ view, setView, conversations, activeConv, setActiveConv, onDe
           )}
         </div>
       </div>
+
+      {/* User footer — code + logout */}
+      <div style={{
+        borderTop: `1px solid ${T.sideBorder}`, padding: '10px 14px',
+        display: 'flex', alignItems: 'center', gap: 8,
+      }}>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontSize: 11.5, color: T.sideText, fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            {getAuthName() || 'Traveler'}
+          </div>
+          <div style={{ fontSize: 10, color: T.sideDim, fontFamily: 'monospace' }}>{getAuthCode()}</div>
+        </div>
+        <button onClick={doLogout} title="Sign out" style={{
+          background: 'transparent', border: 0, color: T.sideDim, cursor: 'pointer',
+          padding: 4, borderRadius: 6, display: 'flex', alignItems: 'center',
+          fontSize: 11,
+        }}>
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+        </button>
+      </div>
     </aside>
   );
 }
@@ -732,7 +752,7 @@ RULE 10: LANGUAGE IS ENGLISH ONLY.
 
 Format: Keep responses extremely concise and short. Use structured markdown (tables, quotes, ordered lists) for roadmaps. Do not give long messages unless the user explicitly asks for a brief or explanation. Respond in short sentences like a knowledgeable friend.`;
 
-function SettingsView({ onSettings, isMobile, onMenuOpen }) {
+function SettingsView({ onSettings, isMobile, onMenuOpen, onAdmin }) {
   const [files, setFiles] = useState([]);
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
@@ -868,6 +888,12 @@ function SettingsView({ onSettings, isMobile, onMenuOpen }) {
           </div>
           <div style={{ flex: 1, fontWeight: 600, fontSize: 14 }}>Settings</div>
           <div style={{ fontSize: 12, color: T.inkDim }}>{files.length} documents active</div>
+          {onAdmin && (
+            <button onClick={onAdmin} style={{
+              background: 'transparent', border: `1px solid ${T.border}`, borderRadius: 8,
+              padding: '4px 10px', fontSize: 11, color: T.inkDim, cursor: 'pointer',
+            }}>Admin</button>
+          )}
         </div>
 
         {/* Tabs */}
@@ -1008,8 +1034,323 @@ function SettingsView({ onSettings, isMobile, onMenuOpen }) {
 /* ---------- API Config ---------- */
 const API_URL = 'https://matia-rag-production.up.railway.app';
 
+/* ---------- Auth helpers ---------- */
+const getAuthCode = () => localStorage.getItem('rt66_code') || '';
+const getAuthName = () => localStorage.getItem('rt66_name') || '';
+const authHeaders = () => ({
+  'Content-Type': 'application/json',
+  'X-Access-Code': getAuthCode(),
+});
+const doLogout = () => {
+  localStorage.removeItem('rt66_code');
+  localStorage.removeItem('rt66_name');
+  window.location.reload();
+};
+
+/* ---------- Login view ---------- */
+function LoginView({ onLogin }) {
+  const [code, setCode] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+
+  const handleSubmit = async () => {
+    const trimmed = code.trim().toUpperCase();
+    if (!trimmed) return;
+    setLoading(true);
+    setError('');
+    try {
+      const res = await fetch(`${API_URL}/api/validate-code`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ code: trimmed }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        onLogin(trimmed, data.name || '');
+      } else {
+        setError('Invalid or inactive code. Check your email.');
+      }
+    } catch (e) {
+      setError('Network error. Please try again.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div style={{
+      width: '100vw', height: '100vh',
+      display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+      background: T.bg, fontFamily: '-apple-system, "SF Pro Text", "Inter", system-ui, sans-serif',
+      padding: '24px 16px', boxSizing: 'border-box',
+    }}>
+      <div style={{ width: '100%', maxWidth: 380, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 24 }}>
+        <div style={{
+          width: 72, height: 72, borderRadius: 18, background: T.sideBg,
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          boxShadow: '0 8px 32px rgba(0,0,0,0.14)',
+        }}>
+          <BrandMark size={54} />
+        </div>
+        <div style={{ textAlign: 'center' }}>
+          <h1 style={{ margin: '0 0 8px', fontFamily: 'Fraunces, Georgia, serif', fontWeight: 400, fontSize: 34, letterSpacing: -0.8, color: T.ink }}>
+            Route <span style={{ fontStyle: 'italic', color: T.accentText }}>66</span>
+          </h1>
+          <p style={{ margin: 0, color: T.inkDim, fontSize: 13.5, lineHeight: 1.55 }}>Enter your access code to continue</p>
+        </div>
+        <div style={{
+          width: '100%', background: T.bgSoft, border: `1px solid ${T.border}`,
+          borderRadius: 20, padding: 24, boxSizing: 'border-box',
+          display: 'flex', flexDirection: 'column', gap: 12,
+        }}>
+          <input
+            type="text"
+            value={code}
+            onChange={e => setCode(e.target.value.toUpperCase())}
+            onKeyDown={e => e.key === 'Enter' && handleSubmit()}
+            placeholder="RT66-XXXX-XXXX"
+            spellCheck={false}
+            autoCapitalize="characters"
+            style={{
+              width: '100%', height: 50, borderRadius: 12,
+              border: error ? '1.5px solid #dc4a3a' : `1.5px solid ${T.border}`,
+              padding: '0 16px', fontSize: 16, fontFamily: 'monospace', letterSpacing: 2,
+              color: T.ink, background: '#fff', outline: 'none', boxSizing: 'border-box', textAlign: 'center',
+            }}
+          />
+          {error && <div style={{ fontSize: 12, color: '#dc4a3a', textAlign: 'center', marginTop: -4 }}>{error}</div>}
+          <button
+            onClick={handleSubmit}
+            disabled={loading || !code.trim()}
+            style={{
+              width: '100%', height: 48, borderRadius: 12,
+              background: loading || !code.trim() ? '#e8e8e6' : T.mint,
+              border: `1px solid ${loading || !code.trim() ? '#ddd' : T.mintDeep}`,
+              color: loading || !code.trim() ? T.inkDim : T.ink,
+              fontSize: 14, fontWeight: 600, cursor: loading || !code.trim() ? 'not-allowed' : 'pointer',
+            }}
+          >
+            {loading ? 'Verifying…' : 'Access Route 66 AI'}
+          </button>
+        </div>
+        <p style={{ margin: 0, fontSize: 11.5, color: T.inkFaint, textAlign: 'center', lineHeight: 1.5 }}>
+          Access codes are sent via email after purchase.
+        </p>
+      </div>
+    </div>
+  );
+}
+
+/* ---------- Admin view ---------- */
+function AdminView({ onBack, isMobile }) {
+  const [adminSecret, setAdminSecret] = useState(sessionStorage.getItem('rt66_admin') || '');
+  const [authed, setAuthed] = useState(!!sessionStorage.getItem('rt66_admin'));
+  const [secretInput, setSecretInput] = useState('');
+  const [codes, setCodes] = useState([]);
+  const [stats, setStats] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [generating, setGenerating] = useState(false);
+  const [genForm, setGenForm] = useState({ name: '', email: '', country: '' });
+  const [genError, setGenError] = useState('');
+
+  const adminHdrs = (secret) => ({
+    'Content-Type': 'application/json',
+    'X-Admin-Secret': secret || adminSecret,
+  });
+
+  const loadData = async () => {
+    setLoading(true);
+    try {
+      const [cr, sr] = await Promise.all([
+        fetch(`${API_URL}/api/admin/codes`, { headers: adminHdrs() }),
+        fetch(`${API_URL}/api/admin/stats`, { headers: adminHdrs() }),
+      ]);
+      if (cr.ok) setCodes(await cr.json());
+      if (sr.ok) setStats(await sr.json());
+    } catch (e) { console.error(e); }
+    finally { setLoading(false); }
+  };
+
+  const handleAuth = async () => {
+    const s = secretInput.trim();
+    if (!s) return;
+    const res = await fetch(`${API_URL}/api/admin/stats`, { headers: adminHdrs(s) });
+    if (res.ok) {
+      sessionStorage.setItem('rt66_admin', s);
+      setAdminSecret(s);
+      setAuthed(true);
+    } else {
+      alert('Wrong admin secret.');
+    }
+  };
+
+  useEffect(() => { if (authed) loadData(); }, [authed]);
+
+  const generateCode = async () => {
+    setGenerating(true); setGenError('');
+    try {
+      const res = await fetch(`${API_URL}/api/admin/codes`, {
+        method: 'POST', headers: adminHdrs(),
+        body: JSON.stringify(genForm),
+      });
+      if (res.ok) { setGenForm({ name: '', email: '', country: '' }); loadData(); }
+      else { const d = await res.json(); setGenError(d.detail || 'Failed'); }
+    } catch (e) { setGenError('Network error'); }
+    finally { setGenerating(false); }
+  };
+
+  const toggleActive = async (code, current) => {
+    await fetch(`${API_URL}/api/admin/codes/${encodeURIComponent(code)}`, {
+      method: 'PATCH', headers: adminHdrs(), body: JSON.stringify({ is_active: !current }),
+    });
+    loadData();
+  };
+
+  const deleteCode = async (code) => {
+    if (!confirm(`Delete ${code}? This removes all their conversations.`)) return;
+    await fetch(`${API_URL}/api/admin/codes/${encodeURIComponent(code)}`, { method: 'DELETE', headers: adminHdrs() });
+    loadData();
+  };
+
+  const fmt = (iso) => {
+    if (!iso) return '—';
+    return new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: '2-digit' });
+  };
+
+  if (!authed) {
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+        <TopBar title="Admin" titleAccent=" Panel" onSettings={onBack} onMenuOpen={() => {}} isMobile={isMobile} />
+        <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24 }}>
+          <div style={{ width: '100%', maxWidth: 320, display: 'flex', flexDirection: 'column', gap: 12 }}>
+            <div style={{ fontWeight: 600, fontSize: 15, textAlign: 'center', marginBottom: 4 }}>Admin Access</div>
+            <input
+              type="password" value={secretInput}
+              onChange={e => setSecretInput(e.target.value)}
+              onKeyDown={e => e.key === 'Enter' && handleAuth()}
+              placeholder="Admin secret…"
+              style={{ height: 44, borderRadius: 10, border: `1px solid ${T.border}`, padding: '0 14px', fontSize: 14, outline: 'none', boxSizing: 'border-box', width: '100%' }}
+            />
+            <button onClick={handleAuth} style={{ height: 44, borderRadius: 10, border: 0, background: T.mint, color: T.ink, fontWeight: 600, fontSize: 14, cursor: 'pointer' }}>
+              Authenticate
+            </button>
+            <button onClick={onBack} style={{ background: 'transparent', border: 0, color: T.inkDim, fontSize: 13, cursor: 'pointer', marginTop: 4 }}>
+              ← Back to Settings
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="slide-up" style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+      <TopBar title="Admin" titleAccent=" Panel" onSettings={onBack} onMenuOpen={() => {}} isMobile={isMobile} />
+      <div style={{ flex: 1, overflowY: 'auto', padding: isMobile ? '0 12px 20px' : '0 28px 28px' }}>
+
+        {/* Header row */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 14, marginBottom: 14 }}>
+          <button onClick={onBack} style={{ background: T.bgSoft, border: `1px solid ${T.border}`, borderRadius: 8, padding: '6px 12px', fontSize: 12, cursor: 'pointer', color: T.inkDim }}>
+            ← Settings
+          </button>
+          <div style={{ flex: 1, fontWeight: 600, fontSize: 15 }}>Admin Panel</div>
+          <button onClick={loadData} style={{ background: 'transparent', border: 0, color: T.inkDim, cursor: 'pointer', fontSize: 12 }}>↻ Refresh</button>
+        </div>
+
+        {/* Stats */}
+        {stats && (
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 10, marginBottom: 16 }}>
+            {[
+              { label: 'Total Codes', value: stats.total_codes },
+              { label: 'Active Codes', value: stats.active_codes },
+              { label: 'Messages Sent', value: stats.total_messages },
+            ].map(({ label, value }) => (
+              <div key={label} style={{ background: T.bgSoft, border: `1px solid ${T.border}`, borderRadius: 12, padding: '12px 14px', textAlign: 'center' }}>
+                <div style={{ fontSize: 24, fontWeight: 700, color: T.mint }}>{value ?? '—'}</div>
+                <div style={{ fontSize: 11, color: T.inkDim, marginTop: 2 }}>{label}</div>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* Generate Code */}
+        <div style={{ background: T.bgSoft, border: `1px solid ${T.border}`, borderRadius: 14, padding: 16, marginBottom: 16 }}>
+          <div style={{ fontWeight: 600, fontSize: 13, marginBottom: 12 }}>Generate Access Code</div>
+          <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : 'repeat(3, 1fr)', gap: 8, marginBottom: 10 }}>
+            {['name', 'email', 'country'].map(field => (
+              <input
+                key={field} type="text"
+                placeholder={field.charAt(0).toUpperCase() + field.slice(1)}
+                value={genForm[field]}
+                onChange={e => setGenForm(prev => ({ ...prev, [field]: e.target.value }))}
+                style={{ height: 36, borderRadius: 8, border: `1px solid ${T.border}`, padding: '0 10px', fontSize: 12.5, outline: 'none', boxSizing: 'border-box' }}
+              />
+            ))}
+          </div>
+          {genError && <div style={{ color: '#dc4a3a', fontSize: 12, marginBottom: 8 }}>{genError}</div>}
+          <button onClick={generateCode} disabled={generating} style={{
+            height: 34, padding: '0 20px', borderRadius: 8,
+            border: `1px solid ${T.mintDeep}`, background: T.mint,
+            color: T.ink, fontSize: 13, fontWeight: 500, cursor: generating ? 'not-allowed' : 'pointer',
+          }}>
+            {generating ? 'Generating…' : '+ Generate Code'}
+          </button>
+        </div>
+
+        {/* Codes Table */}
+        <div style={{ background: T.bgSoft, border: `1px solid ${T.border}`, borderRadius: 14, padding: 16, overflowX: 'auto' }}>
+          <div style={{ fontWeight: 600, fontSize: 13, marginBottom: 12 }}>Access Codes ({codes.length})</div>
+          {loading ? (
+            <div style={{ fontSize: 13, color: T.inkDim }}>Loading…</div>
+          ) : codes.length === 0 ? (
+            <div style={{ fontSize: 13, color: T.inkDim }}>No codes yet.</div>
+          ) : (
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+              <thead>
+                <tr style={{ borderBottom: `1px solid ${T.border}` }}>
+                  {['Name', 'Email', 'Country', 'Code', 'Created', 'Last Used', 'Msgs', 'Active', ''].map(h => (
+                    <th key={h} style={{ padding: '6px 10px', textAlign: 'left', color: T.inkDim, fontWeight: 600, whiteSpace: 'nowrap' }}>{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {codes.map(c => (
+                  <tr key={c.code} style={{ borderBottom: `1px solid ${T.border}` }}>
+                    <td style={{ padding: '8px 10px', maxWidth: 100, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{c.name || '—'}</td>
+                    <td style={{ padding: '8px 10px', maxWidth: 140, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{c.email || '—'}</td>
+                    <td style={{ padding: '8px 10px' }}>{c.country || '—'}</td>
+                    <td style={{ padding: '8px 10px', fontFamily: 'monospace', fontSize: 11, color: T.mint }}>{c.code}</td>
+                    <td style={{ padding: '8px 10px', whiteSpace: 'nowrap' }}>{fmt(c.created_at)}</td>
+                    <td style={{ padding: '8px 10px', whiteSpace: 'nowrap' }}>{fmt(c.last_used_at)}</td>
+                    <td style={{ padding: '8px 10px', textAlign: 'center' }}>{c.messages_sent ?? 0}</td>
+                    <td style={{ padding: '8px 10px' }}>
+                      <button onClick={() => toggleActive(c.code, c.is_active)} style={{
+                        padding: '3px 10px', borderRadius: 20, fontSize: 10.5, fontWeight: 600, cursor: 'pointer',
+                        border: 0, background: c.is_active ? '#d1fae5' : '#fee2e2',
+                        color: c.is_active ? '#059669' : '#dc4a3a',
+                      }}>
+                        {c.is_active ? 'Active' : 'Inactive'}
+                      </button>
+                    </td>
+                    <td style={{ padding: '8px 10px' }}>
+                      <button onClick={() => deleteCode(c.code)} style={{ background: 'transparent', border: 0, color: '#dc4a3a', cursor: 'pointer', fontSize: 11 }}>
+                        Delete
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 /* ---------- App shell ---------- */
-function App() {
+function AppShell() {
+
   const [view, setView] = useState('home');
   const animStyle = `
     @keyframes slideUp {
@@ -1049,7 +1390,7 @@ function App() {
 
   const loadConversations = async () => {
     try {
-      const res = await fetch(`${API_URL}/api/conversations`);
+      const res = await fetch(`${API_URL}/api/conversations`, { headers: authHeaders() });
       const data = await res.json();
       const today = data.slice(0, 50).map(c => ({
          id: c.id,
@@ -1076,7 +1417,7 @@ function App() {
       const loadMessages = async () => {
         setIsLoading(true);
         try {
-          const res = await fetch(`${API_URL}/api/conversations/${activeConv}/messages`);
+          const res = await fetch(`${API_URL}/api/conversations/${activeConv}/messages`, { headers: authHeaders() });
           const data = await res.json();
           const mapped = data.map(m => {
             let cleanedText = m.content;
@@ -1138,7 +1479,7 @@ function App() {
 
       const res = await fetch(`${API_URL}/api/chat`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: authHeaders(),
         body: JSON.stringify({ message: text, conversation_id: convIdToUse, model })
       });
 
@@ -1175,7 +1516,7 @@ function App() {
         try {
           const webRes = await fetch(`${API_URL}/api/web-search`, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: authHeaders(),
             body: JSON.stringify({ message: text, conversation_id: webConvId, model: 'gemini-3-flash-preview' })
           });
           const webData = webRes.ok ? await webRes.json() : null;
@@ -1267,7 +1608,7 @@ function App() {
         isMobile={isMobile}
         onDelete={async (id) => {
           try {
-            await fetch(`${API_URL}/api/conversations/${id}`, { method: 'DELETE' });
+            await fetch(`${API_URL}/api/conversations/${id}`, { method: 'DELETE', headers: authHeaders() });
             if (activeConv === id) {
               currentConvIdRef.current = null;
               setActiveConv(null);
@@ -1281,7 +1622,8 @@ function App() {
       <main style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden', minHeight: 0 }}>
         {view === 'home' && <HomeView onPick={pickPrompt} draft={draft} setDraft={setDraft} onSend={send} onSettings={() => setView('settings')} onMenuOpen={handleMenuOpen} isMobile={isMobile} model={model} setModel={setModel} models={MODELS} />}
         {view === 'chat' && <ChatView messages={messages} draft={draft} setDraft={setDraft} onSend={send} isLoading={isLoading} searchPhase={searchPhase} searchSteps={searchSteps} onSettings={() => setView('settings')} onMenuOpen={handleMenuOpen} isMobile={isMobile} model={model} setModel={setModel} models={MODELS} />}
-        {view === 'settings' && <SettingsView onSettings={() => setView(activeConv ? 'chat' : 'home')} isMobile={isMobile} onMenuOpen={handleMenuOpen} />}
+        {view === 'settings' && <SettingsView onSettings={() => setView(activeConv ? 'chat' : 'home')} isMobile={isMobile} onMenuOpen={handleMenuOpen} onAdmin={() => setView('admin')} />}
+        {view === 'admin' && <AdminView onBack={() => setView('settings')} isMobile={isMobile} />}
       </main>
     </div>
   );
@@ -1290,6 +1632,23 @@ function App() {
 function nowTime() {
   const d = new Date();
   return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+}
+
+/* ---------- Auth wrapper ---------- */
+function App() {
+  const [authCode, setAuthCode] = useState(localStorage.getItem('rt66_code') || '');
+
+  if (!authCode) {
+    return (
+      <LoginView onLogin={(code, name) => {
+        localStorage.setItem('rt66_code', code);
+        localStorage.setItem('rt66_name', name);
+        setAuthCode(code);
+      }} />
+    );
+  }
+
+  return <AppShell />;
 }
 
 Object.assign(window, { App });
