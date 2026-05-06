@@ -425,7 +425,7 @@ async def chat(req: ChatRequest):
     if not use_gemini:
         # ── OpenRouter path (no fileSearch — external models) ────────────────
         try:
-            text = await openrouter_chat(contents[:-1], req.model, active_prompt)
+            text = await openrouter_chat(contents, req.model, active_prompt)
             citations = []
         except Exception as e:
             raise HTTPException(status_code=502, detail=f"OpenRouter error: {e}")
