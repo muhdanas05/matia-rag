@@ -7,11 +7,12 @@ import secrets
 import string
 import mimetypes
 import httpx
+import jwt as pyjwt
 from pathlib import Path
 from fastapi import FastAPI, UploadFile, File, HTTPException, BackgroundTasks, Request, Header, Depends
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
 from pydantic import BaseModel
 from dotenv import load_dotenv
 from supabase import create_client, Client
@@ -24,18 +25,23 @@ load_dotenv()
 API_KEY           = os.getenv("GEMINI_API", "").strip()
 BASE              = "https://generativelanguage.googleapis.com"
 MODEL             = "gemini-3-flash-preview"
+GEMINI_PRICE_IN   = 0.075 / 1_000_000   # $ per input token (Gemini Flash)
+GEMINI_PRICE_OUT  = 0.300 / 1_000_000   # $ per output token
 
 SUPABASE_URL      = os.getenv("SUPABASE_URL", "")
 SUPABASE_KEY      = os.getenv("SUPABASE_SERVICE_KEY", "")
+SUPABASE_ANON_KEY = os.getenv("SUPABASE_ANON_KEY", "").strip()
 sb: Client        = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 OPENROUTER_KEY    = os.getenv("OPENROUTER_API_KEY", "").strip()
 OPENROUTER_BASE   = "https://openrouter.ai/api/v1"
 
-ADMIN_SECRET      = os.getenv("ADMIN_SECRET", "").strip()
-SHOPIFY_SECRET    = os.getenv("SHOPIFY_WEBHOOK_SECRET", "").strip()
-SITE_URL          = os.getenv("SITE_URL", "https://europetripus.netlify.app").strip()
-EMAIL_API_KEY     = os.getenv("EMAIL_API_KEY", "").strip()
+ADMIN_PATH_SECRET   = os.getenv("ADMIN_PATH_SECRET", "").strip()
+SUPABASE_JWT_SECRET = os.getenv("SUPABASE_JWT_SECRET", "").strip()
+ADMIN_EMAILS        = [e.strip() for e in os.getenv("ADMIN_EMAILS", "").split(",") if e.strip()]
+SHOPIFY_SECRET      = os.getenv("SHOPIFY_WEBHOOK_SECRET", "").strip()
+SITE_URL            = os.getenv("SITE_URL", "https://europetripus.netlify.app").strip()
+EMAIL_API_KEY       = os.getenv("EMAIL_API_KEY", "").strip()
 
 
 # ── Rate limiter ───────────────────────────────────────────────────────────────
@@ -142,10 +148,24 @@ async def verify_code(x_access_code: str = Header(None)) -> dict:
     return res.data[0]
 
 
-async def verify_admin(x_admin_secret: str = Header(None)):
-    """Validate admin secret from X-Admin-Secret header."""
-    if not ADMIN_SECRET or x_admin_secret != ADMIN_SECRET:
-        raise HTTPException(status_code=403, detail="Forbidden")
+async def verify_admin_jwt(authorization: str = Header(None)):
+    """Validate admin via Supabase JWT (Authorization: Bearer <token>)."""
+    if not authorization or not authorization.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="Missing admin token")
+    token = authorization.split(" ", 1)[1]
+    if not SUPABASE_JWT_SECRET:
+        raise HTTPException(status_code=500, detail="SUPABASE_JWT_SECRET not configured")
+    try:
+        decoded = pyjwt.decode(
+            token, SUPABASE_JWT_SECRET,
+            algorithms=["HS256"], audience="authenticated",
+        )
+    except Exception:
+        raise HTTPException(status_code=401, detail="Invalid admin token")
+    email = decoded.get("email") or decoded.get("user_metadata", {}).get("email", "")
+    if email not in ADMIN_EMAILS:
+        raise HTTPException(status_code=403, detail="Not an admin")
+    return decoded
 
 
 # ── Helpers ────────────────────────────────────────────────────────────────────
@@ -318,7 +338,7 @@ async def provision(request: Request):
 # ── Admin endpoints ────────────────────────────────────────────────────────────
 
 @app.get("/api/admin/codes")
-async def admin_list_codes(_=Depends(verify_admin)):
+async def admin_list_codes(_=Depends(verify_admin_jwt)):
     res = sb.table("access_codes").select("*").order("created_at", desc=True).execute()
     return res.data
 
@@ -329,7 +349,7 @@ class AdminCodeRequest(BaseModel):
     country: str = ""
 
 @app.post("/api/admin/codes")
-async def admin_create_code(req: AdminCodeRequest, _=Depends(verify_admin)):
+async def admin_create_code(req: AdminCodeRequest, _=Depends(verify_admin_jwt)):
     for _ in range(5):
         code = generate_code()
         try:
@@ -353,7 +373,7 @@ class AdminCodePatch(BaseModel):
     is_active: bool | None = None
 
 @app.patch("/api/admin/codes/{code}")
-async def admin_update_code(code: str, req: AdminCodePatch, _=Depends(verify_admin)):
+async def admin_update_code(code: str, req: AdminCodePatch, _=Depends(verify_admin_jwt)):
     updates = {k: v for k, v in req.model_dump().items() if v is not None}
     if not updates:
         raise HTTPException(status_code=400, detail="Nothing to update")
@@ -362,18 +382,24 @@ async def admin_update_code(code: str, req: AdminCodePatch, _=Depends(verify_adm
 
 
 @app.delete("/api/admin/codes/{code}")
-async def admin_delete_code(code: str, _=Depends(verify_admin)):
+async def admin_delete_code(code: str, _=Depends(verify_admin_jwt)):
     sb.table("access_codes").delete().eq("code", code.upper()).execute()
     return {"deleted": True}
 
 
 @app.get("/api/admin/stats")
-async def admin_stats(_=Depends(verify_admin)):
-    codes = sb.table("access_codes").select("is_active,messages_sent").execute().data
+async def admin_stats(_=Depends(verify_admin_jwt)):
+    codes = sb.table("access_codes").select("is_active,messages_sent,cost_usd").execute().data
     total = len(codes)
     active = sum(1 for c in codes if c["is_active"])
     total_msgs = sum(c["messages_sent"] or 0 for c in codes)
-    return {"total_codes": total, "active_codes": active, "total_messages": total_msgs}
+    total_cost = sum(float(c["cost_usd"] or 0) for c in codes)
+    return {
+        "total_codes": total,
+        "active_codes": active,
+        "total_messages": total_msgs,
+        "total_cost_usd": round(total_cost, 4),
+    }
 
 
 # ── System prompt ──────────────────────────────────────────────────────────────
@@ -667,6 +693,19 @@ async def chat(request: Request, req: ChatRequest, code=Depends(verify_code)):
                     web = chunk.get("web", {})
                     if web.get("uri") or web.get("title"):
                         citations.append({"source": f"Web: {web.get('title', '')}", "snippet": web.get("uri", "")})
+                # Track Gemini token usage + cost per user
+                try:
+                    usage = d.get("usageMetadata", {})
+                    t_in  = usage.get("promptTokenCount", 0)
+                    t_out = usage.get("candidatesTokenCount", 0)
+                    call_cost = round(t_in * GEMINI_PRICE_IN + t_out * GEMINI_PRICE_OUT, 6)
+                    sb.table("access_codes").update({
+                        "tokens_in":  (code.get("tokens_in")  or 0) + t_in,
+                        "tokens_out": (code.get("tokens_out") or 0) + t_out,
+                        "cost_usd":   round((float(code.get("cost_usd") or 0)) + call_cost, 6),
+                    }).eq("code", code["code"]).execute()
+                except Exception:
+                    pass
         except HTTPException:
             raise
         except Exception as e:
@@ -786,6 +825,21 @@ async def list_models():
         {"id": "openai/gpt-4o-mini",               "name": "GPT-4o Mini",      "provider": "openrouter"},
         {"id": "meta-llama/llama-3.1-8b-instruct", "name": "Llama 3.1 8B",     "provider": "openrouter"},
     ]}
+
+
+# ── Admin SPA ─────────────────────────────────────────────────────────────────
+
+@app.get("/admin/{path_secret}")
+async def serve_admin(path_secret: str):
+    if not ADMIN_PATH_SECRET or path_secret != ADMIN_PATH_SECRET:
+        raise HTTPException(status_code=404, detail="Not found")
+    html_path = Path(__file__).parent / "static" / "admin.html"
+    if not html_path.exists():
+        raise HTTPException(status_code=404, detail="Admin panel not found")
+    content = html_path.read_text(encoding="utf-8")
+    content = content.replace("{{SUPABASE_URL}}", SUPABASE_URL)
+    content = content.replace("{{SUPABASE_ANON_KEY}}", SUPABASE_ANON_KEY)
+    return Response(content=content, media_type="text/html")
 
 
 # ── Static UI ──────────────────────────────────────────────────────────────────

@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Route 66 — Admin</title>
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,500;1,9..144,400&display=swap" rel="stylesheet">
+<style>
+  *, *::before, *::after { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; width: 100%; height: 100%; background: #f7f7f5; }
+  body { font-family: -apple-system, "SF Pro Text", "Inter", system-ui, sans-serif; color: #1a1b1e; }
+  #root { width: 100%; min-height: 100vh; }
+
+  .slide-up { animation: slideUpSpring 0.5s cubic-bezier(0.16, 1, 0.3, 1) forwards; }
+  @keyframes slideUpSpring {
+    0% { opacity: 0; transform: translateY(16px); }
+    100% { opacity: 1; transform: translateY(0); }
+  }
+
+  /* Table */
+  .admin-table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+  .admin-table th { padding: 8px 12px; text-align: left; color: #6b6d72; font-weight: 600; border-bottom: 1px solid #ececea; white-space: nowrap; background: #f7f7f5; }
+  .admin-table td { padding: 9px 12px; border-bottom: 1px solid #f0f0f0; color: #1a1b1e; vertical-align: middle; }
+  .admin-table tr:last-child td { border-bottom: none; }
+  .admin-table tr:hover td { background: #fafaf9; }
+
+  /* Scrollbar */
+  ::-webkit-scrollbar { width: 6px; height: 6px; }
+  ::-webkit-scrollbar-thumb { background: #d0d0ce; border-radius: 3px; }
+</style>
+</head>
+<body>
+<div id="root"></div>
+
+<script>
+  window.SUPABASE_URL      = "{{SUPABASE_URL}}";
+  window.SUPABASE_ANON_KEY = "{{SUPABASE_ANON_KEY}}";
+  window.API_URL           = "https://matia-rag-production.up.railway.app";
+</script>
+
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+
+<script type="text/babel" src="admin-app.jsx"></script>
+
+<script type="text/babel">
+  ReactDOM.createRoot(document.getElementById('root')).render(<AdminApp />);
+</script>
+</body>
+</html>
