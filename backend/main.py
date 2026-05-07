@@ -25,8 +25,8 @@ load_dotenv()
 API_KEY           = os.getenv("GEMINI_API", "").strip()
 BASE              = "https://generativelanguage.googleapis.com"
 MODEL             = "gemini-3-flash-preview"
-GEMINI_PRICE_IN   = 0.075 / 1_000_000   # $ per input token (Gemini Flash)
-GEMINI_PRICE_OUT  = 0.300 / 1_000_000   # $ per output token
+GEMINI_PRICE_IN   = 0.15 / 1_000_000   # $ per input token (Gemini 2.5 Flash rate — update when Gemini 3 Flash is GA)
+GEMINI_PRICE_OUT  = 0.60 / 1_000_000   # $ per output token
 
 SUPABASE_URL      = os.getenv("SUPABASE_URL", "")
 SUPABASE_KEY      = os.getenv("SUPABASE_SERVICE_KEY", "")

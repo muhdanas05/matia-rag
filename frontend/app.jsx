@@ -475,14 +475,14 @@ function HomeView({ onPick, draft, setDraft, onSend, onMenuOpen, isMobile, model
 function SearchStatus({ phase, steps }) {
   const configs = {
     kb: {
-      icon: 'ðŸ“š',
+      icon: '📚',
       label: 'Searching knowledge base',
       color: '#FA7315',
       bg: '#fff5ee',
       border: '#ffd5b0',
     },
     web: {
-      icon: 'ðŸŒ',
+      icon: '🌐',
       label: 'Searching the web',
       color: '#0066cc',
       bg: '#e8f3ff',
@@ -629,7 +629,7 @@ function Message({ m, isMobile }) {
                 border: `1px solid ${m.source === 'web' ? 'rgba(250,115,21,0.25)' : T.border}`,
                 borderRadius: 99, padding: '1px 7px', fontSize: 10, color: m.source === 'web' ? T.mint : T.inkDim,
               }}>
-                {m.source === 'web' ? 'ðŸŒ Web search' : 'ðŸ“š Knowledge base'}
+                {m.source === 'web' ? '🌐 Web search' : 'ðŸ“š Knowledge base'}
               </span>
             )}
             <span>{m.time}</span>
@@ -640,7 +640,7 @@ function Message({ m, isMobile }) {
           <div style={{ display: 'flex', flexDirection: 'column', gap: 3, marginTop: 2 }}>
             {m.citations.slice(0, 4).map((c, i) => {
               const isWebUrl = c.snippet && c.snippet.startsWith('http');
-              const label = c.source ? c.source.replace('ðŸŒ ', '').replace('europetrip_US_', '') : '';
+              const label = c.source ? c.source.replace('🌐 ', '').replace('europetrip_US_', '') : '';
               return isWebUrl ? (
                 <a key={i} href={c.snippet} target="_blank" rel="noreferrer" style={{
                   fontSize: 10.5, color: T.mint, textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 3,
