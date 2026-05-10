@@ -1,4 +1,4 @@
-﻿// Route 66 â€” AI Assistant
+// Route 66 — AI Assistant
 
 const { useState, useRef, useEffect, Component } = React;
 
@@ -22,7 +22,7 @@ class ErrorBoundary extends Component {
           alignItems: 'center', justifyContent: 'center',
           fontFamily: 'system-ui, sans-serif', background: '#f7f7f5', color: '#1a1b1e',
         }}>
-          <div style={{ fontSize: 32, marginBottom: 12 }}>âš ï¸</div>
+          <div style={{ fontSize: 32, marginBottom: 12 }}>⚠️</div>
           <div style={{ fontWeight: 600, fontSize: 16, marginBottom: 8 }}>Something went wrong</div>
           <div style={{ fontSize: 13, color: '#6b6d72', marginBottom: 20 }}>The app encountered an error. Try refreshing.</div>
           <button onClick={() => window.location.reload()} style={{
@@ -215,7 +215,7 @@ function Sidebar({ view, setView, conversations, activeConv, setActiveConv, onDe
         </div>
       </div>
 
-      {/* User footer â€” code + logout */}
+      {/* User footer — code + logout */}
       <div style={{
         borderTop: `1px solid ${T.sideBorder}`, padding: '10px 14px',
         display: 'flex', alignItems: 'center', gap: 8,
@@ -405,7 +405,7 @@ function HomeView({ onPick, draft, setDraft, onSend, onMenuOpen, isMobile, model
       <TopBar title="Route" titleAccent=" 66" onMenuOpen={onMenuOpen} isMobile={isMobile} />
       {/*
         On mobile: justifyContent flex-start + paddingTop so content starts at top of scroll area.
-        justify-content:center in an overflow container hides content ABOVE centre â€” you can't scroll up to it.
+        justify-content:center in an overflow container hides content ABOVE centre — you can't scroll up to it.
         On desktop: centre is fine because content fits comfortably.
       */}
       <div style={{
@@ -482,7 +482,7 @@ function SearchStatus({ phase, steps }) {
       border: '#ffd5b0',
     },
     web: {
-      icon: '🌐',
+      icon: '🌐',
       label: 'Searching the web',
       color: '#0066cc',
       bg: '#e8f3ff',
@@ -522,7 +522,7 @@ function SearchStatus({ phase, steps }) {
                   fontSize: 11.5, color: cfg.color, opacity: i === steps.length - 1 ? 1 : 0.55,
                   animation: i === steps.length - 1 ? 'slideUpSpring 0.3s ease-out' : 'none',
                 }}>
-                  <span>{i === steps.length - 1 ? 'â€º' : 'âœ“'}</span>
+                  <span>{i === steps.length - 1 ? '›' : '✓'}</span>
                   <span>{s}</span>
                 </div>
               ))}
@@ -629,7 +629,7 @@ function Message({ m, isMobile }) {
                 border: `1px solid ${m.source === 'web' ? 'rgba(250,115,21,0.25)' : T.border}`,
                 borderRadius: 99, padding: '1px 7px', fontSize: 10, color: m.source === 'web' ? T.mint : T.inkDim,
               }}>
-                {m.source === 'web' ? '🌐 Web search' : 'ðŸ“š Knowledge base'}
+                {m.source === 'web' ? '🌐 Web search' : '📚 Knowledge base'}
               </span>
             )}
             <span>{m.time}</span>
@@ -640,14 +640,14 @@ function Message({ m, isMobile }) {
           <div style={{ display: 'flex', flexDirection: 'column', gap: 3, marginTop: 2 }}>
             {m.citations.slice(0, 4).map((c, i) => {
               const isWebUrl = c.snippet && c.snippet.startsWith('http');
-              const label = c.source ? c.source.replace('🌐 ', '').replace('europetrip_US_', '') : '';
+              const label = c.source ? c.source.replace('🌐 ', '').replace('europetrip_US_', '') : '';
               return isWebUrl ? (
                 <a key={i} href={c.snippet} target="_blank" rel="noreferrer" style={{
                   fontSize: 10.5, color: T.mint, textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 3,
-                }}>â†— {label}</a>
+                }}>↗ {label}</a>
               ) : label ? (
                 <span key={i} style={{ fontSize: 10.5, color: T.inkDim, display: 'inline-flex', alignItems: 'center', gap: 3 }}>
-                  ðŸ“„ {label}
+                  📄 {label}
                 </span>
               ) : null;
             })}
@@ -822,7 +822,7 @@ function LoginView({ onLogin }) {
               fontSize: 14, fontWeight: 600, cursor: loading || !code.trim() ? 'not-allowed' : 'pointer',
             }}
           >
-            {loading ? 'Verifyingâ€¦' : 'Access Route 66 AI'}
+            {loading ? 'Verifying…' : 'Access Route 66 AI'}
           </button>
         </div>
         <p style={{ margin: 0, fontSize: 11.5, color: T.inkFaint, textAlign: 'center', lineHeight: 1.5 }}>

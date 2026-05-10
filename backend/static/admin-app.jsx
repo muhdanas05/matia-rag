@@ -18,13 +18,19 @@ const supabase = window.supabase.createClient(
 );
 const API = window.API_URL;
 
-/* ---------- Auth header ---------- */
+/* ---------- Auth headers ---------- */
 async function adminHeaders() {
   const { data: { session } } = await supabase.auth.getSession();
   return {
     'Content-Type': 'application/json',
     'Authorization': `Bearer ${session?.access_token || ''}`,
   };
+}
+
+// For multipart/form-data uploads — no Content-Type (browser sets boundary automatically)
+async function adminUploadHeaders() {
+  const { data: { session } } = await supabase.auth.getSession();
+  return { 'Authorization': `Bearer ${session?.access_token || ''}` };
 }
 
 /* ---------- Inline SVG icons ---------- */
@@ -425,7 +431,8 @@ function KBTab() {
   const loadFiles = async () => {
     setLoading(true);
     try {
-      const r = await fetch(`${API}/api/files`);
+      const hdrs = await adminHeaders();
+      const r = await fetch(`${API}/api/files`, { headers: hdrs });
       const d = await r.json();
       setFiles(d.documents || []);
     } catch (e) { console.error(e); }
@@ -440,7 +447,8 @@ function KBTab() {
     const fd = new FormData();
     fd.append('file', e.target.files[0]);
     try {
-      await fetch(`${API}/api/upload`, { method: 'POST', body: fd });
+      const hdrs = await adminUploadHeaders();
+      await fetch(`${API}/api/upload`, { method: 'POST', headers: hdrs, body: fd });
       await loadFiles();
     } catch (e) { console.error(e); }
     finally { setUploading(false); }
@@ -449,20 +457,25 @@ function KBTab() {
   const handleDelete = async (name) => {
     const fileId = name.split('/').pop();
     setFiles(p => p.filter(f => f.name !== name));
-    try { await fetch(`${API}/api/files/${fileId}`, { method: 'DELETE' }); }
+    try {
+      const hdrs = await adminHeaders();
+      await fetch(`${API}/api/files/${encodeURIComponent(fileId)}`, { method: 'DELETE', headers: hdrs });
+    }
     catch (e) { loadFiles(); }
   };
 
   const handleBulkIngest = async () => {
     if (!folderPath.trim()) return;
     try {
+      const hdrs = await adminHeaders();
       await fetch(`${API}/api/ingest-folder`, {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        method: 'POST', headers: hdrs,
         body: JSON.stringify({ folder_path: folderPath.trim() }),
       });
       const poll = setInterval(async () => {
         try {
-          const r = await fetch(`${API}/api/ingest-status`);
+          const pollHdrs = await adminHeaders();
+          const r = await fetch(`${API}/api/ingest-status`, { headers: pollHdrs });
           const s = await r.json();
           setIngestStatus(s);
           if (!s.running) { clearInterval(poll); setTimeout(() => setIngestStatus(null), 3000); loadFiles(); }

@@ -42,6 +42,15 @@ ADMIN_EMAILS        = [e.strip() for e in os.getenv("ADMIN_EMAILS", "").split(",
 SHOPIFY_SECRET      = os.getenv("SHOPIFY_WEBHOOK_SECRET", "").strip()
 SITE_URL            = os.getenv("SITE_URL", "https://europetripus.netlify.app").strip()
 EMAIL_API_KEY       = os.getenv("EMAIL_API_KEY", "").strip()
+INGEST_BASE_DIR     = os.getenv("INGEST_BASE_DIR", "").strip()
+BACKEND_ORIGIN      = "https://matia-rag-production.up.railway.app"
+
+ALLOWED_MODELS = {
+    "gemini-3-flash-preview",
+    "anthropic/claude-3-5-haiku",
+    "openai/gpt-4o-mini",
+    "meta-llama/llama-3.1-8b-instruct",
+}
 
 
 # ── Rate limiter ───────────────────────────────────────────────────────────────
@@ -128,7 +137,24 @@ ingest_state: dict = {"total": 0, "done": 0, "failed": [], "current": "", "runni
 app = FastAPI()
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
-app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
+
+_allowed_origins = [o for o in [SITE_URL, BACKEND_ORIGIN] if o]
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=_allowed_origins,
+    allow_methods=["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
+    allow_headers=["Content-Type", "Authorization", "X-Access-Code"],
+    allow_credentials=False,
+)
+
+@app.middleware("http")
+async def add_security_headers(request: Request, call_next):
+    response = await call_next(request)
+    response.headers.setdefault("X-Content-Type-Options", "nosniff")
+    response.headers.setdefault("X-Frame-Options", "DENY")
+    response.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
+    response.headers.setdefault("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
+    return response
 
 
 # ── Auth dependencies ──────────────────────────────────────────────────────────
@@ -289,7 +315,8 @@ class ValidateCodeRequest(BaseModel):
     code: str
 
 @app.post("/api/validate-code")
-async def validate_code(req: ValidateCodeRequest):
+@limiter.limit("20/minute")
+async def validate_code(request: Request, req: ValidateCodeRequest):
     """Public endpoint — check if access code is valid without requiring auth header."""
     code = req.code.strip().upper()
     res = sb.table("access_codes").select("code,name,is_active").eq("code", code).execute()
@@ -305,14 +332,15 @@ async def provision(request: Request):
     """Shopify orders/paid webhook — generate access code and email customer."""
     body = await request.body()
 
-    # Verify Shopify HMAC signature
-    if SHOPIFY_SECRET:
-        sig = request.headers.get("X-Shopify-Hmac-Sha256", "")
-        expected = base64.b64encode(
-            hmac.new(SHOPIFY_SECRET.encode(), body, hashlib.sha256).digest()
-        ).decode()
-        if not hmac.compare_digest(sig, expected):
-            raise HTTPException(status_code=401, detail="Invalid Shopify signature")
+    # Verify Shopify HMAC signature — always required
+    if not SHOPIFY_SECRET:
+        raise HTTPException(status_code=503, detail="Webhook not configured")
+    sig = request.headers.get("X-Shopify-Hmac-Sha256", "")
+    expected = base64.b64encode(
+        hmac.new(SHOPIFY_SECRET.encode(), body, hashlib.sha256).digest()
+    ).decode()
+    if not hmac.compare_digest(sig, expected):
+        raise HTTPException(status_code=401, detail="Invalid Shopify signature")
 
     order = json.loads(body)
     billing = order.get("billing_address") or {}
@@ -413,14 +441,14 @@ async def get_system_prompt():
     return {"prompt": cfg.get("system_prompt", STRICT_SYSTEM_PROMPT)}
 
 @app.post("/api/system-prompt")
-async def set_system_prompt(req: SystemPromptRequest):
+async def set_system_prompt(req: SystemPromptRequest, _=Depends(verify_admin_jwt)):
     if not req.prompt or len(req.prompt.strip()) < 20:
         raise HTTPException(status_code=400, detail="Prompt is too short")
     save_cfg({"system_prompt": req.prompt.strip()})
     return {"status": "saved", "prompt": req.prompt.strip()}
 
 @app.delete("/api/system-prompt")
-async def reset_system_prompt():
+async def reset_system_prompt(_=Depends(verify_admin_jwt)):
     cfg = load_cfg()
     if "system_prompt" in cfg:
         sb.table("store_config").delete().eq("key", "system_prompt").execute()
@@ -430,7 +458,7 @@ async def reset_system_prompt():
 # ── Store ──────────────────────────────────────────────────────────────────────
 
 @app.post("/api/store")
-async def create_store():
+async def create_store(_=Depends(verify_admin_jwt)):
     async with httpx.AsyncClient(timeout=30) as h:
         r = await h.post(
             f"{BASE}/v1beta/fileSearchStores",
@@ -445,7 +473,7 @@ async def create_store():
 
 
 @app.get("/api/store")
-async def get_store():
+async def get_store(_=Depends(verify_admin_jwt)):
     cfg = load_cfg()
     if not cfg.get("name"):
         return {"name": None}
@@ -460,7 +488,7 @@ async def get_store():
 
 
 @app.delete("/api/store")
-async def delete_store():
+async def delete_store(_=Depends(verify_admin_jwt)):
     cfg = load_cfg()
     if not cfg.get("name"):
         raise HTTPException(status_code=400, detail="No store exists")
@@ -475,7 +503,7 @@ async def delete_store():
 # ── File upload ────────────────────────────────────────────────────────────────
 
 @app.post("/api/upload")
-async def upload_file(file: UploadFile = File(...)):
+async def upload_file(file: UploadFile = File(...), _=Depends(verify_admin_jwt)):
     cfg = load_cfg()
     if not cfg.get("name"):
         raise HTTPException(status_code=400, detail="Create a store first")
@@ -529,25 +557,36 @@ async def _run_ingest(folder_path: str, store: str):
 
 
 @app.post("/api/ingest-folder")
-async def ingest_folder(req: IngestRequest, background_tasks: BackgroundTasks):
+async def ingest_folder(req: IngestRequest, background_tasks: BackgroundTasks, _=Depends(verify_admin_jwt)):
     cfg = load_cfg()
     if not cfg.get("name"):
         raise HTTPException(status_code=400, detail="Create a store first")
     if ingest_state.get("running"):
         raise HTTPException(status_code=409, detail="Ingest already running")
-    background_tasks.add_task(_run_ingest, req.folder_path, cfg["name"])
+    # Path traversal protection
+    try:
+        folder = Path(req.folder_path).resolve()
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid path")
+    if INGEST_BASE_DIR:
+        allowed = Path(INGEST_BASE_DIR).resolve()
+        if not (str(folder) == str(allowed) or str(folder).startswith(str(allowed) + os.sep)):
+            raise HTTPException(status_code=400, detail="Path outside allowed base directory")
+    if not folder.exists() or not folder.is_dir():
+        raise HTTPException(status_code=400, detail="Path does not exist or is not a directory")
+    background_tasks.add_task(_run_ingest, str(folder), cfg["name"])
     return {"started": True}
 
 
 @app.get("/api/ingest-status")
-async def ingest_status():
+async def ingest_status(_=Depends(verify_admin_jwt)):
     return ingest_state
 
 
 # ── Files ──────────────────────────────────────────────────────────────────────
 
 @app.get("/api/files")
-async def list_files():
+async def list_files(_=Depends(verify_admin_jwt)):
     cfg = load_cfg()
     if not cfg.get("name"):
         return {"files": []}
@@ -561,7 +600,7 @@ async def list_files():
 
 
 @app.delete("/api/files/{file_id:path}")
-async def delete_file(file_id: str):
+async def delete_file(file_id: str, _=Depends(verify_admin_jwt)):
     cfg = load_cfg()
     if not cfg.get("name"):
         raise HTTPException(status_code=400, detail="No store exists")
@@ -638,12 +677,26 @@ class ChatRequest(BaseModel):
 @app.post("/api/chat")
 @limiter.limit("10/minute")
 async def chat(request: Request, req: ChatRequest, code=Depends(verify_code)):
+    if len(req.message) > 2000:
+        raise HTTPException(status_code=400, detail="Message too long (max 2000 characters)")
+    if req.model not in ALLOWED_MODELS:
+        raise HTTPException(status_code=400, detail="Model not allowed")
     use_gemini = req.model.startswith("gemini-")
     cfg = load_cfg()
 
     # Load or create conversation — scoped to access_code
     try:
         if req.conversation_id:
+            # Verify conversation belongs to this access code (prevents cross-user message injection)
+            conv_check = (
+                sb.table("conversations")
+                .select("id")
+                .eq("id", req.conversation_id)
+                .eq("access_code", code["code"])
+                .execute()
+            )
+            if not conv_check.data:
+                raise HTTPException(status_code=403, detail="Access denied")
             conv_id = req.conversation_id
         else:
             res = sb.table("conversations").insert({"title": req.message[:60], "access_code": code["code"]}).execute()
@@ -745,11 +798,24 @@ You are a helpful Route 66 travel assistant. The user's question was not found i
 @app.post("/api/web-search")
 @limiter.limit("10/minute")
 async def web_search_endpoint(request: Request, req: ChatRequest, code=Depends(verify_code)):
+    if len(req.message) > 2000:
+        raise HTTPException(status_code=400, detail="Message too long (max 2000 characters)")
     conv_id = req.conversation_id
     try:
         if not conv_id:
             res = sb.table("conversations").insert({"title": req.message[:60], "access_code": code["code"]}).execute()
             conv_id = res.data[0]["id"]
+        else:
+            # Verify conversation belongs to this access code
+            conv_check = (
+                sb.table("conversations")
+                .select("id")
+                .eq("id", conv_id)
+                .eq("access_code", code["code"])
+                .execute()
+            )
+            if not conv_check.data:
+                raise HTTPException(status_code=403, detail="Access denied")
         history_res = sb.table("messages").select("role,content").eq("conversation_id", conv_id).order("created_at").execute()
         contents = [{"role": m["role"], "parts": [{"text": m["content"]}]} for m in history_res.data]
     except Exception:
