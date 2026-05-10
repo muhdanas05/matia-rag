@@ -131,7 +131,12 @@
 <script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" crossorigin="anonymous"></script>
 <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/dompurify@3/dist/purify.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
 <script>
+  // Injected by backend at request time
+  window.SUPABASE_URL      = "{{SUPABASE_URL}}";
+  window.SUPABASE_ANON_KEY = "{{SUPABASE_ANON_KEY}}";
+
   // Configure marked.js — no raw HTML passthrough
   if (window.marked) {
     marked.use({ gfm: true, breaks: true, headerIds: false, mangle: false });

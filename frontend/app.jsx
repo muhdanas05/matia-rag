@@ -222,9 +222,8 @@ function Sidebar({ view, setView, conversations, activeConv, setActiveConv, onDe
       }}>
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ fontSize: 11.5, color: T.sideText, fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-            {getAuthName() || 'Traveler'}
+            {getAuthEmail() || 'Traveler'}
           </div>
-          <div style={{ fontSize: 10, color: T.sideDim, fontFamily: 'monospace' }}>{getAuthCode()}</div>
         </div>
         <button onClick={doLogout} title="Sign out" style={{
           background: 'transparent', border: 0, color: T.sideDim, cursor: 'pointer',
@@ -726,48 +725,88 @@ function FileBubble({ title, link, name }) {
 /* ---------- API Config ---------- */
 const API_URL = 'https://matia-rag-production.up.railway.app';
 
+/* ---------- Supabase client (singleton) ---------- */
+let _sb = null;
+function getSB() {
+  if (!_sb && window.supabase && window.SUPABASE_URL && window.SUPABASE_ANON_KEY) {
+    _sb = window.supabase.createClient(window.SUPABASE_URL, window.SUPABASE_ANON_KEY);
+  }
+  return _sb;
+}
+
 /* ---------- Auth helpers ---------- */
-const getAuthCode = () => localStorage.getItem('rt66_code') || '';
-const getAuthName = () => localStorage.getItem('rt66_name') || '';
-const authHeaders = () => ({
+let _session = null;
+const getAuthToken  = () => _session?.access_token || '';
+const getAuthEmail  = () => _session?.user?.email  || '';
+const authHeaders   = () => ({
   'Content-Type': 'application/json',
-  'X-Access-Code': getAuthCode(),
+  'Authorization': `Bearer ${getAuthToken()}`,
 });
-const doLogout = () => {
-  localStorage.removeItem('rt66_code');
-  localStorage.removeItem('rt66_name');
+const doLogout = async () => {
+  const sb = getSB();
+  if (sb) await sb.auth.signOut();
+  _session = null;
   window.location.reload();
 };
 
-/* ---------- Login view ---------- */
-function LoginView({ onLogin }) {
-  const [code, setCode] = useState('');
+/* ---------- Login view (email OTP) ---------- */
+function LoginView({ onSession }) {
+  const [phase,   setPhase]   = useState('email'); // 'email' | 'otp'
+  const [email,   setEmail]   = useState('');
+  const [otp,     setOtp]     = useState('');
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState('');
+  const [error,   setError]   = useState('');
 
-  const handleSubmit = async () => {
-    const trimmed = code.trim().toUpperCase();
-    if (!trimmed) return;
-    setLoading(true);
-    setError('');
-    try {
-      const res = await fetch(`${API_URL}/api/validate-code`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ code: trimmed }),
-      });
-      if (res.ok) {
-        const data = await res.json();
-        onLogin(trimmed, data.name || '');
+  const sendOtp = async () => {
+    const addr = email.trim().toLowerCase();
+    if (!addr || !addr.includes('@')) { setError('Enter a valid email address.'); return; }
+    setLoading(true); setError('');
+    const sb = getSB();
+    if (!sb) { setError('Auth not initialised — please refresh.'); setLoading(false); return; }
+    const { error: err } = await sb.auth.signInWithOtp({
+      email: addr,
+      options: { shouldCreateUser: false },
+    });
+    setLoading(false);
+    if (err) {
+      if (err.message && err.message.toLowerCase().includes('signups not allowed')) {
+        setError('This email is not registered. Please contact support.');
       } else {
-        setError('Invalid or inactive code. Check your email.');
+        setError(err.message || 'Failed to send code. Try again.');
       }
-    } catch (e) {
-      setError('Network error. Please try again.');
-    } finally {
-      setLoading(false);
+      return;
     }
+    setPhase('otp');
   };
+
+  const verifyOtp = async () => {
+    const token = otp.trim();
+    if (token.length < 4) { setError('Enter the 6-digit code from your email.'); return; }
+    setLoading(true); setError('');
+    const sb = getSB();
+    const { data, error: err } = await sb.auth.verifyOtp({
+      email: email.trim().toLowerCase(),
+      token,
+      type: 'email',
+    });
+    setLoading(false);
+    if (err) { setError('Incorrect or expired code. Try again.'); return; }
+    onSession(data.session);
+  };
+
+  const inputStyle = (hasErr) => ({
+    width: '100%', height: 50, borderRadius: 12,
+    border: hasErr ? '1.5px solid #dc4a3a' : `1.5px solid ${T.border}`,
+    padding: '0 16px', fontSize: 15,
+    color: T.ink, background: '#fff', outline: 'none', boxSizing: 'border-box',
+  });
+  const btnStyle = (disabled) => ({
+    width: '100%', height: 48, borderRadius: 12,
+    background: disabled ? '#e8e8e6' : T.mint,
+    border: `1px solid ${disabled ? '#ddd' : T.mintDeep}`,
+    color: disabled ? T.inkDim : T.ink,
+    fontSize: 14, fontWeight: 600, cursor: disabled ? 'not-allowed' : 'pointer',
+  });
 
   return (
     <div style={{
@@ -788,45 +827,54 @@ function LoginView({ onLogin }) {
           <h1 style={{ margin: '0 0 8px', fontFamily: 'Fraunces, Georgia, serif', fontWeight: 400, fontSize: 34, letterSpacing: -0.8, color: T.ink }}>
             Route <span style={{ fontStyle: 'italic', color: T.accentText }}>66</span>
           </h1>
-          <p style={{ margin: 0, color: T.inkDim, fontSize: 13.5, lineHeight: 1.55 }}>Enter your access code to continue</p>
+          <p style={{ margin: 0, color: T.inkDim, fontSize: 13.5, lineHeight: 1.55 }}>
+            {phase === 'email' ? 'Enter your email to receive a login code' : `We sent a 6-digit code to ${email}`}
+          </p>
         </div>
         <div style={{
           width: '100%', background: T.bgSoft, border: `1px solid ${T.border}`,
           borderRadius: 20, padding: 24, boxSizing: 'border-box',
           display: 'flex', flexDirection: 'column', gap: 12,
         }}>
-          <input
-            type="text"
-            value={code}
-            onChange={e => setCode(e.target.value.toUpperCase())}
-            onKeyDown={e => e.key === 'Enter' && handleSubmit()}
-            placeholder="RT66-XXXX-XXXX"
-            spellCheck={false}
-            autoCapitalize="characters"
-            style={{
-              width: '100%', height: 50, borderRadius: 12,
-              border: error ? '1.5px solid #dc4a3a' : `1.5px solid ${T.border}`,
-              padding: '0 16px', fontSize: 16, fontFamily: 'monospace', letterSpacing: 2,
-              color: T.ink, background: '#fff', outline: 'none', boxSizing: 'border-box', textAlign: 'center',
-            }}
-          />
-          {error && <div style={{ fontSize: 12, color: '#dc4a3a', textAlign: 'center', marginTop: -4 }}>{error}</div>}
-          <button
-            onClick={handleSubmit}
-            disabled={loading || !code.trim()}
-            style={{
-              width: '100%', height: 48, borderRadius: 12,
-              background: loading || !code.trim() ? '#e8e8e6' : T.mint,
-              border: `1px solid ${loading || !code.trim() ? '#ddd' : T.mintDeep}`,
-              color: loading || !code.trim() ? T.inkDim : T.ink,
-              fontSize: 14, fontWeight: 600, cursor: loading || !code.trim() ? 'not-allowed' : 'pointer',
-            }}
-          >
-            {loading ? 'Verifying…' : 'Access Route 66 AI'}
-          </button>
+          {phase === 'email' ? (
+            <>
+              <input
+                type="email" value={email}
+                onChange={e => setEmail(e.target.value)}
+                onKeyDown={e => e.key === 'Enter' && sendOtp()}
+                placeholder="your@email.com"
+                autoComplete="email" autoFocus
+                style={inputStyle(!!error)}
+              />
+              {error && <div style={{ fontSize: 12, color: '#dc4a3a', textAlign: 'center', marginTop: -4 }}>{error}</div>}
+              <button onClick={sendOtp} disabled={loading || !email.trim()} style={btnStyle(loading || !email.trim())}>
+                {loading ? 'Sending…' : 'Send Login Code'}
+              </button>
+            </>
+          ) : (
+            <>
+              <input
+                type="text" value={otp} inputMode="numeric"
+                onChange={e => setOtp(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                onKeyDown={e => e.key === 'Enter' && verifyOtp()}
+                placeholder="123456"
+                autoFocus maxLength={6}
+                style={{ ...inputStyle(!!error), textAlign: 'center', letterSpacing: 6, fontSize: 22, fontFamily: 'monospace' }}
+              />
+              {error && <div style={{ fontSize: 12, color: '#dc4a3a', textAlign: 'center', marginTop: -4 }}>{error}</div>}
+              <button onClick={verifyOtp} disabled={loading || otp.length < 4} style={btnStyle(loading || otp.length < 4)}>
+                {loading ? 'Verifying…' : 'Sign In'}
+              </button>
+              <button onClick={() => { setPhase('email'); setOtp(''); setError(''); }} style={{
+                background: 'transparent', border: 0, color: T.inkDim, fontSize: 12, cursor: 'pointer', textAlign: 'center',
+              }}>
+                ← Use a different email
+              </button>
+            </>
+          )}
         </div>
         <p style={{ margin: 0, fontSize: 11.5, color: T.inkFaint, textAlign: 'center', lineHeight: 1.5 }}>
-          Access codes are sent via email after purchase.
+          Access is by invitation only.
         </p>
       </div>
     </div>
@@ -1119,16 +1167,27 @@ function nowTime() {
 
 /* ---------- Auth wrapper ---------- */
 function App() {
-  const [authCode, setAuthCode] = useState(localStorage.getItem('rt66_code') || '');
+  const [ready,   setReady]   = useState(false);
+  const [session, setSession] = useState(null);
 
-  if (!authCode) {
-    return (
-      <LoginView onLogin={(code, name) => {
-        localStorage.setItem('rt66_code', code);
-        localStorage.setItem('rt66_name', name);
-        setAuthCode(code);
-      }} />
-    );
+  useEffect(() => {
+    const sb = getSB();
+    if (!sb) { setReady(true); return; }
+    sb.auth.getSession().then(({ data }) => {
+      if (data.session) { _session = data.session; setSession(data.session); }
+      setReady(true);
+    });
+    const { data: { subscription } } = sb.auth.onAuthStateChange((_evt, s) => {
+      _session = s;
+      setSession(s);
+    });
+    return () => subscription.unsubscribe();
+  }, []);
+
+  if (!ready) return null;
+
+  if (!session) {
+    return <LoginView onSession={s => { _session = s; setSession(s); }} />;
   }
 
   return <AppShell />;

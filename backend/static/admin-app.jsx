@@ -257,8 +257,8 @@ function OverviewTab() {
     <div className="slide-up">
       <h2 style={{ margin: '0 0 16px', fontSize: 17, fontWeight: 600 }}>Overview</h2>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 14 }}>
-        <StatCard label="Total Codes" value={stats.total_codes} />
-        <StatCard label="Active Codes" value={stats.active_codes} color="#059669" />
+        <StatCard label="Total Users" value={stats.total_users} />
+        <StatCard label="Active Users" value={stats.active_users} color="#059669" />
         <StatCard label="Messages Sent" value={stats.total_messages?.toLocaleString()} color="#0066cc" />
         <StatCard
           label="Total Gemini Cost"
@@ -273,57 +273,59 @@ function OverviewTab() {
 
 /* ---------- Users tab ---------- */
 function UsersTab() {
-  const [codes, setCodes] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [generating, setGenerating] = useState(false);
-  const [genForm, setGenForm] = useState({ name: '', email: '', country: '' });
-  const [genError, setGenError] = useState('');
-  const [genCode, setGenCode] = useState('');
+  const [users,    setUsers]    = useState([]);
+  const [loading,  setLoading]  = useState(true);
+  const [adding,   setAdding]   = useState(false);
+  const [addForm,  setAddForm]  = useState({ email: '', name: '', country: '' });
+  const [addError, setAddError] = useState('');
+  const [addOk,    setAddOk]    = useState('');
 
   const load = useCallback(async () => {
     setLoading(true);
     try {
       const hdrs = await adminHeaders();
-      const r = await fetch(`${API}/api/admin/codes`, { headers: hdrs });
-      if (r.ok) setCodes(await r.json());
+      const r = await fetch(`${API}/api/admin/users`, { headers: hdrs });
+      if (r.ok) setUsers(await r.json());
     } catch (e) { console.error(e); }
     finally { setLoading(false); }
   }, []);
 
   useEffect(() => { load(); }, [load]);
 
-  const generate = async () => {
-    setGenerating(true); setGenError(''); setGenCode('');
+  const addUser = async () => {
+    const email = addForm.email.trim().toLowerCase();
+    if (!email || !email.includes('@')) { setAddError('Valid email required'); return; }
+    setAdding(true); setAddError(''); setAddOk('');
     try {
       const hdrs = await adminHeaders();
-      const r = await fetch(`${API}/api/admin/codes`, {
-        method: 'POST', headers: hdrs, body: JSON.stringify(genForm),
+      const r = await fetch(`${API}/api/admin/users`, {
+        method: 'POST', headers: hdrs,
+        body: JSON.stringify(addForm),
       });
       if (r.ok) {
-        const d = await r.json();
-        setGenCode(d.code);
-        setGenForm({ name: '', email: '', country: '' });
+        setAddOk(`${email} added — they can now log in with email OTP.`);
+        setAddForm({ email: '', name: '', country: '' });
         load();
       } else {
         const d = await r.json();
-        setGenError(d.detail || 'Failed');
+        setAddError(d.detail || 'Failed to add user');
       }
-    } catch (e) { setGenError('Network error'); }
-    finally { setGenerating(false); }
+    } catch (e) { setAddError('Network error'); }
+    finally { setAdding(false); }
   };
 
-  const toggleActive = async (code, current) => {
+  const toggleActive = async (id, current) => {
     const hdrs = await adminHeaders();
-    await fetch(`${API}/api/admin/codes/${encodeURIComponent(code)}`, {
+    await fetch(`${API}/api/admin/users/${encodeURIComponent(id)}`, {
       method: 'PATCH', headers: hdrs, body: JSON.stringify({ is_active: !current }),
     });
     load();
   };
 
-  const deleteCode = async (code) => {
-    if (!confirm(`Delete ${code}? This removes all their conversations.`)) return;
+  const deleteUser = async (id, email) => {
+    if (!confirm(`Remove ${email}? They will lose access immediately.`)) return;
     const hdrs = await adminHeaders();
-    await fetch(`${API}/api/admin/codes/${encodeURIComponent(code)}`, { method: 'DELETE', headers: hdrs });
+    await fetch(`${API}/api/admin/users/${encodeURIComponent(id)}`, { method: 'DELETE', headers: hdrs });
     load();
   };
 
@@ -331,82 +333,87 @@ function UsersTab() {
 
   return (
     <div className="slide-up" style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
-      <h2 style={{ margin: 0, fontSize: 17, fontWeight: 600 }}>Users & Access Codes</h2>
+      <h2 style={{ margin: 0, fontSize: 17, fontWeight: 600 }}>Users</h2>
 
-      {/* Generate */}
+      {/* Add user */}
       <div style={{ background: '#fff', border: `1px solid ${T.border}`, borderRadius: 14, padding: 18 }}>
-        <div style={{ fontWeight: 600, fontSize: 13, marginBottom: 12 }}>Generate New Code</div>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8, marginBottom: 10 }}>
-          {['name', 'email', 'country'].map(f => (
-            <input key={f} type="text"
-              placeholder={f.charAt(0).toUpperCase() + f.slice(1)}
-              value={genForm[f]}
-              onChange={e => setGenForm(p => ({ ...p, [f]: e.target.value }))}
-              style={{ height: 36, borderRadius: 8, border: `1px solid ${T.border}`, padding: '0 10px', fontSize: 13, outline: 'none' }}
-            />
-          ))}
+        <div style={{ fontWeight: 600, fontSize: 13, marginBottom: 12 }}>Add New User</div>
+        <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr', gap: 8, marginBottom: 10 }}>
+          <input type="email" placeholder="Email *"
+            value={addForm.email}
+            onChange={e => setAddForm(p => ({ ...p, email: e.target.value }))}
+            onKeyDown={e => e.key === 'Enter' && addUser()}
+            style={{ height: 36, borderRadius: 8, border: `1px solid ${T.border}`, padding: '0 10px', fontSize: 13, outline: 'none' }}
+          />
+          <input type="text" placeholder="Name"
+            value={addForm.name}
+            onChange={e => setAddForm(p => ({ ...p, name: e.target.value }))}
+            style={{ height: 36, borderRadius: 8, border: `1px solid ${T.border}`, padding: '0 10px', fontSize: 13, outline: 'none' }}
+          />
+          <input type="text" placeholder="Country"
+            value={addForm.country}
+            onChange={e => setAddForm(p => ({ ...p, country: e.target.value }))}
+            style={{ height: 36, borderRadius: 8, border: `1px solid ${T.border}`, padding: '0 10px', fontSize: 13, outline: 'none' }}
+          />
         </div>
-        {genError && <div style={{ color: '#dc4a3a', fontSize: 12, marginBottom: 8 }}>{genError}</div>}
-        {genCode && (
-          <div style={{ background: T.lilac, border: `1px solid #ffd5b0`, borderRadius: 8, padding: '8px 14px', fontSize: 12.5, marginBottom: 10, fontFamily: 'monospace', color: T.ink }}>
-            ✅ Code generated: <strong>{genCode}</strong>
-          </div>
-        )}
-        <button onClick={generate} disabled={generating} style={{
+        {addError && <div style={{ color: '#dc4a3a', fontSize: 12, marginBottom: 8 }}>{addError}</div>}
+        {addOk    && <div style={{ color: '#059669', fontSize: 12, marginBottom: 8, background: '#d1fae5', padding: '6px 10px', borderRadius: 6 }}>{addOk}</div>}
+        <button onClick={addUser} disabled={adding || !addForm.email.trim()} style={{
           height: 34, padding: '0 18px', borderRadius: 8,
           border: `1px solid ${T.mintDeep}`, background: T.mint,
-          color: '#fff', fontSize: 13, fontWeight: 500, cursor: generating ? 'not-allowed' : 'pointer',
+          color: '#fff', fontSize: 13, fontWeight: 500,
+          cursor: adding || !addForm.email.trim() ? 'not-allowed' : 'pointer',
+          opacity: adding || !addForm.email.trim() ? 0.6 : 1,
         }}>
-          {generating ? 'Generating…' : '+ Generate Code'}
+          {adding ? 'Adding…' : '+ Add User'}
         </button>
       </div>
 
       {/* Table */}
       <div style={{ background: '#fff', border: `1px solid ${T.border}`, borderRadius: 14, overflow: 'hidden' }}>
         <div style={{ padding: '14px 18px', borderBottom: `1px solid ${T.border}`, fontWeight: 600, fontSize: 13, display: 'flex', alignItems: 'center', gap: 10 }}>
-          Access Codes ({codes.length})
+          All Users ({users.length})
           <button onClick={load} style={{ background: 'transparent', border: 0, color: T.inkDim, cursor: 'pointer', fontSize: 12 }}>↻</button>
         </div>
         {loading ? (
           <div style={{ padding: 20, fontSize: 13, color: T.inkDim }}>Loading…</div>
-        ) : codes.length === 0 ? (
-          <div style={{ padding: 20, fontSize: 13, color: T.inkDim }}>No codes yet.</div>
+        ) : users.length === 0 ? (
+          <div style={{ padding: 20, fontSize: 13, color: T.inkDim }}>No users yet.</div>
         ) : (
           <div style={{ overflowX: 'auto' }}>
             <table className="admin-table">
               <thead>
                 <tr>
-                  {['Name', 'Email', 'Country', 'Code', 'Messages', 'Tokens In', 'Tokens Out', 'Cost ($)', 'Last Used', 'Status', ''].map(h => (
+                  {['Email', 'Name', 'Country', 'Messages', 'Tokens In', 'Tokens Out', 'Cost ($)', 'Last Seen', 'Status', ''].map(h => (
                     <th key={h}>{h}</th>
                   ))}
                 </tr>
               </thead>
               <tbody>
-                {codes.map(c => (
-                  <tr key={c.code}>
-                    <td style={{ maxWidth: 100, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{c.name || '—'}</td>
-                    <td style={{ maxWidth: 150, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{c.email || '—'}</td>
-                    <td>{c.country || '—'}</td>
-                    <td style={{ fontFamily: 'monospace', fontSize: 11, color: T.mint, whiteSpace: 'nowrap' }}>{c.code}</td>
-                    <td style={{ textAlign: 'right' }}>{(c.messages_sent || 0).toLocaleString()}</td>
-                    <td style={{ textAlign: 'right', color: T.inkDim }}>{(c.tokens_in || 0).toLocaleString()}</td>
-                    <td style={{ textAlign: 'right', color: T.inkDim }}>{(c.tokens_out || 0).toLocaleString()}</td>
+                {users.map(u => (
+                  <tr key={u.id}>
+                    <td style={{ maxWidth: 180, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{u.email}</td>
+                    <td style={{ maxWidth: 100, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{u.name || '—'}</td>
+                    <td>{u.country || '—'}</td>
+                    <td style={{ textAlign: 'right' }}>{(u.messages_sent || 0).toLocaleString()}</td>
+                    <td style={{ textAlign: 'right', color: T.inkDim }}>{(u.tokens_in || 0).toLocaleString()}</td>
+                    <td style={{ textAlign: 'right', color: T.inkDim }}>{(u.tokens_out || 0).toLocaleString()}</td>
                     <td style={{ textAlign: 'right', fontWeight: 600, color: '#7c3aed' }}>
-                      ${parseFloat(c.cost_usd || 0).toFixed(4)}
+                      ${parseFloat(u.cost_usd || 0).toFixed(4)}
                     </td>
-                    <td style={{ whiteSpace: 'nowrap', color: T.inkDim }}>{fmt(c.last_used_at)}</td>
+                    <td style={{ whiteSpace: 'nowrap', color: T.inkDim }}>{fmt(u.last_seen_at)}</td>
                     <td>
-                      <button onClick={() => toggleActive(c.code, c.is_active)} style={{
+                      <button onClick={() => toggleActive(u.id, u.is_active)} style={{
                         padding: '3px 10px', borderRadius: 20, fontSize: 10.5, fontWeight: 600, cursor: 'pointer',
-                        border: 0, background: c.is_active ? '#d1fae5' : '#fee2e2',
-                        color: c.is_active ? '#059669' : '#dc4a3a', whiteSpace: 'nowrap',
+                        border: 0, background: u.is_active ? '#d1fae5' : '#fee2e2',
+                        color: u.is_active ? '#059669' : '#dc4a3a', whiteSpace: 'nowrap',
                       }}>
-                        {c.is_active ? 'Active' : 'Inactive'}
+                        {u.is_active ? 'Active' : 'Inactive'}
                       </button>
                     </td>
                     <td>
-                      <button onClick={() => deleteCode(c.code)} style={{ background: 'transparent', border: 0, color: '#dc4a3a', cursor: 'pointer', fontSize: 11 }}>
-                        Delete
+                      <button onClick={() => deleteUser(u.id, u.email)} style={{ background: 'transparent', border: 0, color: '#dc4a3a', cursor: 'pointer', fontSize: 11 }}>
+                        Remove
                       </button>
                     </td>
                   </tr>

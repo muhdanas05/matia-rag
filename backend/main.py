@@ -3,8 +3,6 @@ import json
 import hmac
 import hashlib
 import base64
-import secrets
-import string
 import mimetypes
 import httpx
 import jwt as pyjwt
@@ -12,7 +10,7 @@ from pathlib import Path
 from fastapi import FastAPI, UploadFile, File, HTTPException, BackgroundTasks, Request, Header, Depends
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse, Response
+from fastapi.responses import Response
 from pydantic import BaseModel
 from dotenv import load_dotenv
 from supabase import create_client, Client
@@ -55,7 +53,10 @@ ALLOWED_MODELS = {
 
 # ── Rate limiter ───────────────────────────────────────────────────────────────
 def _rate_key(request: Request) -> str:
-    return request.headers.get("x-access-code") or get_remote_address(request)
+    auth = request.headers.get("authorization", "")
+    if auth.startswith("Bearer "):
+        return auth[7:30]  # first 23 chars of token as key (stable per session)
+    return get_remote_address(request)
 
 limiter = Limiter(key_func=_rate_key)
 
@@ -143,7 +144,7 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=_allowed_origins,
     allow_methods=["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
-    allow_headers=["Content-Type", "Authorization", "X-Access-Code"],
+    allow_headers=["Content-Type", "Authorization"],
     allow_credentials=False,
 )
 
@@ -159,19 +160,33 @@ async def add_security_headers(request: Request, call_next):
 
 # ── Auth dependencies ──────────────────────────────────────────────────────────
 
-async def verify_code(x_access_code: str = Header(None)) -> dict:
-    """Validate access code from X-Access-Code header."""
-    if not x_access_code:
-        raise HTTPException(status_code=401, detail="Access code required")
-    res = sb.table("access_codes").select("*").eq("code", x_access_code.strip().upper()).eq("is_active", True).execute()
-    if not res.data:
-        raise HTTPException(status_code=401, detail="Invalid or inactive access code")
-    # Fire-and-forget last_used update
+async def verify_user_jwt(authorization: str = Header(None)) -> dict:
+    """Validate user via Supabase JWT (Authorization: Bearer <token>)."""
+    if not authorization or not authorization.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="Authentication required")
+    token = authorization.split(" ", 1)[1]
+    if not SUPABASE_JWT_SECRET:
+        raise HTTPException(status_code=500, detail="SUPABASE_JWT_SECRET not configured")
     try:
-        sb.table("access_codes").update({"last_used_at": "now()"}).eq("code", x_access_code.strip().upper()).execute()
+        decoded = pyjwt.decode(
+            token, SUPABASE_JWT_SECRET,
+            algorithms=["HS256"], audience="authenticated",
+        )
+    except pyjwt.ExpiredSignatureError:
+        raise HTTPException(status_code=401, detail="Session expired, please log in again")
+    except Exception:
+        raise HTTPException(status_code=401, detail="Invalid session")
+    email = decoded.get("email")
+    if not email:
+        raise HTTPException(status_code=401, detail="Invalid token claims")
+    user_res = sb.table("allowed_users").select("*").eq("email", email).eq("is_active", True).execute()
+    if not user_res.data:
+        raise HTTPException(status_code=403, detail="This email is not registered. Please contact support.")
+    try:
+        sb.table("allowed_users").update({"last_seen_at": "now()"}).eq("email", email).execute()
     except Exception:
         pass
-    return res.data[0]
+    return user_res.data[0]
 
 
 async def verify_admin_jwt(authorization: str = Header(None)):
@@ -220,41 +235,6 @@ async def openrouter_chat(messages: list, model: str, system_prompt: str) -> str
         if r.status_code != 200:
             raise HTTPException(status_code=r.status_code, detail=r.text)
         return r.json()["choices"][0]["message"]["content"]
-
-
-async def send_access_email(email: str, name: str, code: str):
-    """Send access code email. Provider configured via EMAIL_API_KEY env var."""
-    if not EMAIL_API_KEY or not email:
-        return
-    login_url = f"{SITE_URL}?code={code}"
-    # Resend implementation — swap for SendGrid/Mailgun as needed
-    try:
-        async with httpx.AsyncClient(timeout=15) as h:
-            await h.post(
-                "https://api.resend.com/emails",
-                headers={"Authorization": f"Bearer {EMAIL_API_KEY}", "Content-Type": "application/json"},
-                json={
-                    "from": "Route 66 AI <noreply@europetripus.com>",
-                    "to": [email],
-                    "subject": "Your Route 66 AI Access Code",
-                    "html": f"""
-                        <h2>Welcome, {name or 'Traveler'}!</h2>
-                        <p>Your access code for the Route 66 AI assistant is:</p>
-                        <h1 style="letter-spacing:4px;color:#FA7315">{code}</h1>
-                        <p><a href="{login_url}">Click here to log in</a> or visit {SITE_URL} and enter your code.</p>
-                        <p>Keep this code safe — it gives you lifetime access.</p>
-                    """,
-                },
-            )
-    except Exception:
-        pass
-
-
-def generate_code() -> str:
-    chars = string.ascii_uppercase + string.digits
-    part1 = "".join(secrets.choice(chars) for _ in range(4))
-    part2 = "".join(secrets.choice(chars) for _ in range(4))
-    return f"RT66-{part1}-{part2}"
 
 
 def detect_category(filename: str) -> str:
@@ -306,30 +286,25 @@ async def upload_bytes_to_store(store: str, filename: str, data: bytes, mime: st
 
 @app.get("/api/version")
 async def version():
-    return {"version": "3.0", "features": ["kb-search", "web-search", "system-prompt-editor", "openrouter", "auth", "admin"]}
+    return {"version": "4.0", "features": ["kb-search", "web-search", "system-prompt-editor", "openrouter", "email-otp-auth", "admin"]}
 
 
-# ── Auth endpoints (public) ────────────────────────────────────────────────────
-
-class ValidateCodeRequest(BaseModel):
-    code: str
-
-@app.post("/api/validate-code")
-@limiter.limit("20/minute")
-async def validate_code(request: Request, req: ValidateCodeRequest):
-    """Public endpoint — check if access code is valid without requiring auth header."""
-    code = req.code.strip().upper()
-    res = sb.table("access_codes").select("code,name,is_active").eq("code", code).execute()
-    if not res.data or not res.data[0]["is_active"]:
-        raise HTTPException(status_code=401, detail="Invalid or inactive access code")
-    return {"valid": True, "name": res.data[0].get("name", "")}
+@app.get("/", include_in_schema=False)
+async def serve_root():
+    html_path = Path(__file__).parent / "static" / "index.html"
+    if not html_path.exists():
+        return Response(content="Not found", status_code=404)
+    content = html_path.read_text(encoding="utf-8")
+    content = content.replace("{{SUPABASE_URL}}", SUPABASE_URL)
+    content = content.replace("{{SUPABASE_ANON_KEY}}", SUPABASE_ANON_KEY)
+    return Response(content=content, media_type="text/html")
 
 
 # ── Shopify webhook ────────────────────────────────────────────────────────────
 
 @app.post("/api/provision")
 async def provision(request: Request):
-    """Shopify orders/paid webhook — generate access code and email customer."""
+    """Shopify orders/paid webhook — register customer email for OTP login."""
     body = await request.body()
 
     # Verify Shopify HMAC signature — always required
@@ -345,86 +320,131 @@ async def provision(request: Request):
     order = json.loads(body)
     billing = order.get("billing_address") or {}
     name    = billing.get("name") or order.get("customer", {}).get("first_name", "")
-    email   = order.get("email", "")
+    email   = order.get("email", "").strip().lower()
     country = billing.get("country", "")
 
-    # Generate unique code (retry on collision)
-    for _ in range(5):
-        code = generate_code()
-        try:
-            sb.table("access_codes").insert({
-                "code": code, "name": name, "email": email, "country": country
-            }).execute()
-            break
-        except Exception:
-            continue
+    if not email:
+        return {"status": "skipped", "reason": "no email"}
 
-    await send_access_email(email, name, code)
-    return {"status": "provisioned", "code": code}
+    # Create Supabase Auth user so they can receive OTP
+    try:
+        async with httpx.AsyncClient(timeout=15) as h:
+            await h.post(
+                f"{SUPABASE_URL}/auth/v1/admin/users",
+                headers={
+                    "apikey": SUPABASE_KEY,
+                    "Authorization": f"Bearer {SUPABASE_KEY}",
+                    "Content-Type": "application/json",
+                },
+                json={"email": email, "email_confirm": True},
+            )
+    except Exception:
+        pass
+
+    # Add to allowed_users (ignore duplicate)
+    try:
+        sb.table("allowed_users").insert({"email": email, "name": name, "country": country}).execute()
+    except Exception:
+        pass
+
+    return {"status": "provisioned", "email": email}
 
 
 # ── Admin endpoints ────────────────────────────────────────────────────────────
 
-@app.get("/api/admin/codes")
-async def admin_list_codes(_=Depends(verify_admin_jwt)):
-    res = sb.table("access_codes").select("*").order("created_at", desc=True).execute()
+@app.get("/api/admin/users")
+async def admin_list_users(_=Depends(verify_admin_jwt)):
+    res = sb.table("allowed_users").select("*").order("created_at", desc=True).execute()
     return res.data
 
 
-class AdminCodeRequest(BaseModel):
+class AdminUserRequest(BaseModel):
+    email: str
     name: str = ""
-    email: str = ""
     country: str = ""
 
-@app.post("/api/admin/codes")
-async def admin_create_code(req: AdminCodeRequest, _=Depends(verify_admin_jwt)):
-    for _ in range(5):
-        code = generate_code()
-        try:
-            res = sb.table("access_codes").insert({
-                "code": code, "name": req.name, "email": req.email, "country": req.country
-            }).execute()
-            if res.data:
-                # Send email if address provided
-                if req.email:
-                    await send_access_email(req.email, req.name, code)
-                return res.data[0]
-        except Exception:
-            continue
-    raise HTTPException(status_code=500, detail="Failed to generate unique code")
+@app.post("/api/admin/users")
+async def admin_create_user(req: AdminUserRequest, _=Depends(verify_admin_jwt)):
+    email = req.email.strip().lower()
+    if not email or "@" not in email:
+        raise HTTPException(status_code=400, detail="Valid email required")
+    # Create Supabase Auth user so they can receive OTP
+    try:
+        async with httpx.AsyncClient(timeout=15) as h:
+            r = await h.post(
+                f"{SUPABASE_URL}/auth/v1/admin/users",
+                headers={
+                    "apikey": SUPABASE_KEY,
+                    "Authorization": f"Bearer {SUPABASE_KEY}",
+                    "Content-Type": "application/json",
+                },
+                json={"email": email, "email_confirm": True},
+            )
+            if r.status_code not in (200, 201, 422):
+                raise HTTPException(status_code=500, detail=f"Auth user creation failed: {r.text}")
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Auth error: {str(e)}")
+    # Add to allowed_users
+    try:
+        res = sb.table("allowed_users").insert({
+            "email": email, "name": req.name, "country": req.country,
+        }).execute()
+        return res.data[0] if res.data else {"email": email}
+    except Exception:
+        raise HTTPException(status_code=409, detail="User already exists")
 
 
-class AdminCodePatch(BaseModel):
+class AdminUserPatch(BaseModel):
     name: str | None = None
-    email: str | None = None
     country: str | None = None
     is_active: bool | None = None
 
-@app.patch("/api/admin/codes/{code}")
-async def admin_update_code(code: str, req: AdminCodePatch, _=Depends(verify_admin_jwt)):
+@app.patch("/api/admin/users/{user_id}")
+async def admin_update_user(user_id: str, req: AdminUserPatch, _=Depends(verify_admin_jwt)):
     updates = {k: v for k, v in req.model_dump().items() if v is not None}
     if not updates:
         raise HTTPException(status_code=400, detail="Nothing to update")
-    res = sb.table("access_codes").update(updates).eq("code", code.upper()).execute()
+    res = sb.table("allowed_users").update(updates).eq("id", user_id).execute()
     return res.data[0] if res.data else {}
 
 
-@app.delete("/api/admin/codes/{code}")
-async def admin_delete_code(code: str, _=Depends(verify_admin_jwt)):
-    sb.table("access_codes").delete().eq("code", code.upper()).execute()
+@app.delete("/api/admin/users/{user_id}")
+async def admin_delete_user(user_id: str, _=Depends(verify_admin_jwt)):
+    user_res = sb.table("allowed_users").select("email").eq("id", user_id).execute()
+    if user_res.data:
+        email = user_res.data[0]["email"]
+        try:
+            async with httpx.AsyncClient(timeout=15) as h:
+                list_r = await h.get(
+                    f"{SUPABASE_URL}/auth/v1/admin/users",
+                    params={"email": email},
+                    headers={"apikey": SUPABASE_KEY, "Authorization": f"Bearer {SUPABASE_KEY}"},
+                )
+                if list_r.status_code == 200:
+                    for u in list_r.json().get("users", []):
+                        if u.get("email") == email:
+                            await h.delete(
+                                f"{SUPABASE_URL}/auth/v1/admin/users/{u['id']}",
+                                headers={"apikey": SUPABASE_KEY, "Authorization": f"Bearer {SUPABASE_KEY}"},
+                            )
+        except Exception:
+            pass
+    sb.table("allowed_users").delete().eq("id", user_id).execute()
     return {"deleted": True}
 
 
 @app.get("/api/admin/stats")
 async def admin_stats(_=Depends(verify_admin_jwt)):
-    codes = sb.table("access_codes").select("is_active,messages_sent,cost_usd").execute().data
-    total = len(codes)
-    active = sum(1 for c in codes if c["is_active"])
-    total_msgs = sum(c["messages_sent"] or 0 for c in codes)
-    total_cost = sum(float(c["cost_usd"] or 0) for c in codes)
+    users = sb.table("allowed_users").select("is_active,messages_sent,cost_usd").execute().data
+    total = len(users)
+    active = sum(1 for u in users if u["is_active"])
+    total_msgs = sum(u["messages_sent"] or 0 for u in users)
+    total_cost = sum(float(u["cost_usd"] or 0) for u in users)
     return {
-        "total_codes": total,
-        "active_codes": active,
+        "total_users": total,
+        "active_users": active,
         "total_messages": total_msgs,
         "total_cost_usd": round(total_cost, 4),
     }
@@ -617,11 +637,11 @@ async def delete_file(file_id: str, _=Depends(verify_admin_jwt)):
 # ── Conversations ──────────────────────────────────────────────────────────────
 
 @app.get("/api/conversations")
-async def list_conversations(code=Depends(verify_code)):
+async def list_conversations(user=Depends(verify_user_jwt)):
     res = (
         sb.table("conversations")
         .select("id,title,updated_at")
-        .eq("access_code", code["code"])
+        .eq("user_email", user["email"])
         .order("updated_at", desc=True)
         .limit(50)
         .execute()
@@ -630,13 +650,13 @@ async def list_conversations(code=Depends(verify_code)):
 
 
 @app.post("/api/conversations")
-async def create_conversation(code=Depends(verify_code)):
-    res = sb.table("conversations").insert({"title": "New conversation", "access_code": code["code"]}).execute()
+async def create_conversation(user=Depends(verify_user_jwt)):
+    res = sb.table("conversations").insert({"title": "New conversation", "user_email": user["email"]}).execute()
     return res.data[0]
 
 
 @app.patch("/api/conversations/{conv_id}")
-async def rename_conversation(conv_id: str, body: dict, code=Depends(verify_code)):
+async def rename_conversation(conv_id: str, body: dict, user=Depends(verify_user_jwt)):
     title = body.get("title", "").strip()
     if not title:
         raise HTTPException(status_code=400, detail="Title required")
@@ -644,22 +664,21 @@ async def rename_conversation(conv_id: str, body: dict, code=Depends(verify_code
         sb.table("conversations")
         .update({"title": title})
         .eq("id", conv_id)
-        .eq("access_code", code["code"])
+        .eq("user_email", user["email"])
         .execute()
     )
     return res.data[0] if res.data else {}
 
 
 @app.delete("/api/conversations/{conv_id}")
-async def delete_conversation(conv_id: str, code=Depends(verify_code)):
-    sb.table("conversations").delete().eq("id", conv_id).eq("access_code", code["code"]).execute()
+async def delete_conversation(conv_id: str, user=Depends(verify_user_jwt)):
+    sb.table("conversations").delete().eq("id", conv_id).eq("user_email", user["email"]).execute()
     return {"deleted": True}
 
 
 @app.get("/api/conversations/{conv_id}/messages")
-async def get_messages(conv_id: str, code=Depends(verify_code)):
-    # Verify conversation belongs to this user
-    conv = sb.table("conversations").select("id").eq("id", conv_id).eq("access_code", code["code"]).execute()
+async def get_messages(conv_id: str, user=Depends(verify_user_jwt)):
+    conv = sb.table("conversations").select("id").eq("id", conv_id).eq("user_email", user["email"]).execute()
     if not conv.data:
         raise HTTPException(status_code=403, detail="Access denied")
     res = sb.table("messages").select("*").eq("conversation_id", conv_id).order("created_at").execute()
@@ -676,7 +695,7 @@ class ChatRequest(BaseModel):
 
 @app.post("/api/chat")
 @limiter.limit("10/minute")
-async def chat(request: Request, req: ChatRequest, code=Depends(verify_code)):
+async def chat(request: Request, req: ChatRequest, user=Depends(verify_user_jwt)):
     if len(req.message) > 2000:
         raise HTTPException(status_code=400, detail="Message too long (max 2000 characters)")
     if req.model not in ALLOWED_MODELS:
@@ -684,22 +703,21 @@ async def chat(request: Request, req: ChatRequest, code=Depends(verify_code)):
     use_gemini = req.model.startswith("gemini-")
     cfg = load_cfg()
 
-    # Load or create conversation — scoped to access_code
+    # Load or create conversation — scoped to user_email
     try:
         if req.conversation_id:
-            # Verify conversation belongs to this access code (prevents cross-user message injection)
             conv_check = (
                 sb.table("conversations")
                 .select("id")
                 .eq("id", req.conversation_id)
-                .eq("access_code", code["code"])
+                .eq("user_email", user["email"])
                 .execute()
             )
             if not conv_check.data:
                 raise HTTPException(status_code=403, detail="Access denied")
             conv_id = req.conversation_id
         else:
-            res = sb.table("conversations").insert({"title": req.message[:60], "access_code": code["code"]}).execute()
+            res = sb.table("conversations").insert({"title": req.message[:60], "user_email": user["email"]}).execute()
             conv_id = res.data[0]["id"]
         history_res = sb.table("messages").select("role,content").eq("conversation_id", conv_id).order("created_at").execute()
         contents = [{"role": m["role"], "parts": [{"text": m["content"]}]} for m in history_res.data]
@@ -752,11 +770,11 @@ async def chat(request: Request, req: ChatRequest, code=Depends(verify_code)):
                     t_in  = usage.get("promptTokenCount", 0)
                     t_out = usage.get("candidatesTokenCount", 0)
                     call_cost = round(t_in * GEMINI_PRICE_IN + t_out * GEMINI_PRICE_OUT, 6)
-                    sb.table("access_codes").update({
-                        "tokens_in":  (code.get("tokens_in")  or 0) + t_in,
-                        "tokens_out": (code.get("tokens_out") or 0) + t_out,
-                        "cost_usd":   round((float(code.get("cost_usd") or 0)) + call_cost, 6),
-                    }).eq("code", code["code"]).execute()
+                    sb.table("allowed_users").update({
+                        "tokens_in":  (user.get("tokens_in")  or 0) + t_in,
+                        "tokens_out": (user.get("tokens_out") or 0) + t_out,
+                        "cost_usd":   round((float(user.get("cost_usd") or 0)) + call_cost, 6),
+                    }).eq("email", user["email"]).execute()
                 except Exception:
                     pass
         except HTTPException:
@@ -778,7 +796,7 @@ async def chat(request: Request, req: ChatRequest, code=Depends(verify_code)):
                 {"conversation_id": conv_id, "role": "user", "content": req.message, "citations": []},
             ]).execute()
         # Increment messages_sent counter
-        sb.table("access_codes").update({"messages_sent": (code["messages_sent"] or 0) + 1}).eq("code", code["code"]).execute()
+        sb.table("allowed_users").update({"messages_sent": (user["messages_sent"] or 0) + 1}).eq("email", user["email"]).execute()
     except Exception:
         pass
 
@@ -797,21 +815,20 @@ You are a helpful Route 66 travel assistant. The user's question was not found i
 
 @app.post("/api/web-search")
 @limiter.limit("10/minute")
-async def web_search_endpoint(request: Request, req: ChatRequest, code=Depends(verify_code)):
+async def web_search_endpoint(request: Request, req: ChatRequest, user=Depends(verify_user_jwt)):
     if len(req.message) > 2000:
         raise HTTPException(status_code=400, detail="Message too long (max 2000 characters)")
     conv_id = req.conversation_id
     try:
         if not conv_id:
-            res = sb.table("conversations").insert({"title": req.message[:60], "access_code": code["code"]}).execute()
+            res = sb.table("conversations").insert({"title": req.message[:60], "user_email": user["email"]}).execute()
             conv_id = res.data[0]["id"]
         else:
-            # Verify conversation belongs to this access code
             conv_check = (
                 sb.table("conversations")
                 .select("id")
                 .eq("id", conv_id)
-                .eq("access_code", code["code"])
+                .eq("user_email", user["email"])
                 .execute()
             )
             if not conv_check.data:
