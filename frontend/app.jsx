@@ -749,6 +749,16 @@ const doLogout = async () => {
   window.location.reload();
 };
 
+// Wraps fetch — auto signs out on 401/403 (removed/deactivated user)
+const apiFetch = async (url, opts = {}) => {
+  const res = await fetch(url, opts);
+  if (res.status === 401 || res.status === 403) {
+    await doLogout();
+    return res;
+  }
+  return res;
+};
+
 /* ---------- Login view (email OTP) ---------- */
 function LoginView({ onSession }) {
   const [phase,   setPhase]   = useState('email'); // 'email' | 'otp'
@@ -923,7 +933,7 @@ function AppShell() {
 
   const loadConversations = async () => {
     try {
-      const res = await fetch(`${API_URL}/api/conversations`, { headers: authHeaders() });
+      const res = await apiFetch(`${API_URL}/api/conversations`, { headers: authHeaders() });
       const data = await res.json();
       const today = data.slice(0, 50).map(c => ({
          id: c.id,
@@ -950,7 +960,7 @@ function AppShell() {
       const loadMessages = async () => {
         setIsLoading(true);
         try {
-          const res = await fetch(`${API_URL}/api/conversations/${activeConv}/messages`, { headers: authHeaders() });
+          const res = await apiFetch(`${API_URL}/api/conversations/${activeConv}/messages`, { headers: authHeaders() });
           const data = await res.json();
           const mapped = data.map(m => {
             let cleanedText = m.content;
@@ -1010,7 +1020,7 @@ function AppShell() {
       await new Promise(r => setTimeout(r, 400));
       pushStep('Matching your question to documents...');
 
-      const res = await fetch(`${API_URL}/api/chat`, {
+      const res = await apiFetch(`${API_URL}/api/chat`, {
         method: 'POST',
         headers: authHeaders(),
         body: JSON.stringify({ message: text, conversation_id: convIdToUse, model })
@@ -1047,7 +1057,7 @@ function AppShell() {
         const webConvId = data.conversation_id || currentConvIdRef.current || convIdToUse;
 
         try {
-          const webRes = await fetch(`${API_URL}/api/web-search`, {
+          const webRes = await apiFetch(`${API_URL}/api/web-search`, {
             method: 'POST',
             headers: authHeaders(),
             body: JSON.stringify({ message: text, conversation_id: webConvId, model: 'gemini-3-flash-preview' })
@@ -1141,7 +1151,7 @@ function AppShell() {
         isMobile={isMobile}
         onDelete={async (id) => {
           try {
-            await fetch(`${API_URL}/api/conversations/${id}`, { method: 'DELETE', headers: authHeaders() });
+            await apiFetch(`${API_URL}/api/conversations/${id}`, { method: 'DELETE', headers: authHeaders() });
             if (activeConv === id) {
               currentConvIdRef.current = null;
               setActiveConv(null);
