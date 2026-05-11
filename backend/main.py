@@ -160,25 +160,27 @@ async def add_security_headers(request: Request, call_next):
 
 # ── Auth dependencies ──────────────────────────────────────────────────────────
 
+async def _supabase_get_user(token: str) -> dict:
+    """Verify token via Supabase /auth/v1/user — works regardless of JWT secret format."""
+    async with httpx.AsyncClient(timeout=10) as h:
+        r = await h.get(
+            f"{SUPABASE_URL}/auth/v1/user",
+            headers={"Authorization": f"Bearer {token}", "apikey": SUPABASE_KEY},
+        )
+    if r.status_code != 200:
+        return {}
+    return r.json()
+
+
 async def verify_user_jwt(authorization: str = Header(None)) -> dict:
-    """Validate user via Supabase JWT (Authorization: Bearer <token>)."""
+    """Validate user via Supabase token verification."""
     if not authorization or not authorization.startswith("Bearer "):
         raise HTTPException(status_code=401, detail="Authentication required")
     token = authorization.split(" ", 1)[1]
-    if not SUPABASE_JWT_SECRET:
-        raise HTTPException(status_code=500, detail="SUPABASE_JWT_SECRET not configured")
-    try:
-        decoded = pyjwt.decode(
-            token, SUPABASE_JWT_SECRET,
-            algorithms=["HS256"], audience="authenticated",
-        )
-    except pyjwt.ExpiredSignatureError:
-        raise HTTPException(status_code=401, detail="Session expired, please log in again")
-    except Exception:
-        raise HTTPException(status_code=401, detail="Invalid session")
-    email = decoded.get("email")
+    user_data = await _supabase_get_user(token)
+    email = user_data.get("email", "")
     if not email:
-        raise HTTPException(status_code=401, detail="Invalid token claims")
+        raise HTTPException(status_code=401, detail="Session expired, please log in again")
     user_res = sb.table("allowed_users").select("*").eq("email", email).eq("is_active", True).execute()
     if not user_res.data:
         raise HTTPException(status_code=403, detail="This email is not registered. Please contact support.")
@@ -190,23 +192,17 @@ async def verify_user_jwt(authorization: str = Header(None)) -> dict:
 
 
 async def verify_admin_jwt(authorization: str = Header(None)):
-    """Validate admin via Supabase JWT (Authorization: Bearer <token>)."""
+    """Validate admin via Supabase token verification."""
     if not authorization or not authorization.startswith("Bearer "):
         raise HTTPException(status_code=401, detail="Missing admin token")
     token = authorization.split(" ", 1)[1]
-    if not SUPABASE_JWT_SECRET:
-        raise HTTPException(status_code=500, detail="SUPABASE_JWT_SECRET not configured")
-    try:
-        decoded = pyjwt.decode(
-            token, SUPABASE_JWT_SECRET,
-            algorithms=["HS256"], audience="authenticated",
-        )
-    except Exception:
+    user_data = await _supabase_get_user(token)
+    email = user_data.get("email", "")
+    if not email:
         raise HTTPException(status_code=401, detail="Invalid admin token")
-    email = decoded.get("email") or decoded.get("user_metadata", {}).get("email", "")
     if email not in ADMIN_EMAILS:
         raise HTTPException(status_code=403, detail="Not an admin")
-    return decoded
+    return user_data
 
 
 # ── Helpers ────────────────────────────────────────────────────────────────────
