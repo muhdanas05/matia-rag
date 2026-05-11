@@ -139,7 +139,7 @@ app = FastAPI()
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
-_allowed_origins = [o for o in [SITE_URL, BACKEND_ORIGIN] if o]
+_allowed_origins = [o for o in [SITE_URL, BACKEND_ORIGIN, "https://route66operator.com"] if o]
 app.add_middleware(
     CORSMiddleware,
     allow_origins=_allowed_origins,
