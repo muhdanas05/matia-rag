@@ -116,7 +116,7 @@ const IconMenu = (p) => <Icon {...p} d={['M4 6h16', 'M4 12h16', 'M4 18h16']} />;
 const IconX = (p) => <Icon {...p} d={['M18 6 6 18', 'M6 6l12 12']} />;
 
 /* ---------- Sidebar ---------- */
-function Sidebar({ view, setView, conversations, activeConv, setActiveConv, onDelete, isOpen, onClose, isMobile }) {
+function Sidebar({ view, setView, conversations, activeConv, setActiveConv, onDelete, isOpen, onClose, isMobile, newChatFlash, setNewChatFlash }) {
   const [foldersOpen, setFoldersOpen] = useState(true);
   const [chatsOpen, setChatsOpen] = useState(true);
   const windowWidth = useWindowWidth();
@@ -188,9 +188,15 @@ function Sidebar({ view, setView, conversations, activeConv, setActiveConv, onDe
 
       {/* New Chat */}
       <div style={{ padding: '4px 12px 8px', display: 'flex', flexDirection: 'column', gap: 6 }}>
-        <button onClick={() => {
+        <button className={newChatFlash ? 'new-chat-flash' : ''} onClick={() => {
           if (conversations.today.length >= 5) {
             alert('You\'ve reached the 5 conversation limit. Please delete an existing conversation to start a new one.');
+            return;
+          }
+          if (activeConv === null) {
+            setNewChatFlash(true);
+            setTimeout(() => setNewChatFlash(false), 500);
+            if (isMobile) onClose();
             return;
           }
           setActiveConv(null);
@@ -914,11 +920,39 @@ function AppShell() {
   const animStyle = `
     @keyframes slideUp {
       from { opacity: 0; transform: translateY(12px); }
-      to { opacity: 1; transform: translateY(0); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+    @keyframes slideUpSpring {
+      from { opacity: 0; transform: translateY(8px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+    @keyframes fadeIn {
+      from { opacity: 0; }
+      to   { opacity: 1; }
     }
     @keyframes pulse {
       0%, 100% { opacity: 1; }
-      50% { opacity: 0.5; }
+      50%       { opacity: 0.45; }
+    }
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+    @keyframes newChatPulse {
+      0%   { transform: scale(1);    background: transparent; }
+      35%  { transform: scale(0.97); background: rgba(255,255,255,0.10); }
+      70%  { transform: scale(1.02); }
+      100% { transform: scale(1);    background: transparent; }
+    }
+    .slide-up {
+      animation: slideUpSpring 0.35s cubic-bezier(0.16,1,0.3,1) both;
+    }
+    .liquid-hover {
+      transition: transform 0.14s ease, box-shadow 0.14s ease, opacity 0.14s ease;
+    }
+    .liquid-hover:hover  { transform: scale(1.04); }
+    .liquid-hover:active { transform: scale(0.94); opacity: 0.82; }
+    .new-chat-flash {
+      animation: newChatPulse 0.48s cubic-bezier(0.16,1,0.3,1);
     }
   `;
 
@@ -933,6 +967,7 @@ function AppShell() {
   const [searchPhase, setSearchPhase] = useState(null); // 'kb' | 'web' | null
   const [searchSteps, setSearchSteps] = useState([]);
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [newChatFlash, setNewChatFlash] = useState(false);
 
   const MODELS = [
     { id: 'gemini-3-flash-preview',           label: 'Gemini Flash 3',   short: 'Gemini' },
@@ -1177,6 +1212,7 @@ function AppShell() {
         activeConv={activeConv} setActiveConv={setActiveConv}
         isOpen={sidebarOpen} onClose={handleMenuClose}
         isMobile={isMobile}
+        newChatFlash={newChatFlash} setNewChatFlash={setNewChatFlash}
         onDelete={async (id) => {
           try {
             await apiFetch(`${API_URL}/api/conversations/${id}`, { method: 'DELETE', headers: authHeaders() });
