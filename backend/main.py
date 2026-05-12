@@ -713,10 +713,15 @@ async def chat(request: Request, req: ChatRequest, user=Depends(verify_user_jwt)
                 raise HTTPException(status_code=403, detail="Access denied")
             conv_id = req.conversation_id
         else:
+            count_res = sb.table("conversations").select("id", count="exact").eq("user_email", user["email"]).execute()
+            if (count_res.count or 0) >= 5:
+                raise HTTPException(status_code=429, detail="CONV_LIMIT_REACHED")
             res = sb.table("conversations").insert({"title": req.message[:60], "user_email": user["email"]}).execute()
             conv_id = res.data[0]["id"]
         history_res = sb.table("messages").select("role,content").eq("conversation_id", conv_id).order("created_at").execute()
         contents = [{"role": m["role"], "parts": [{"text": m["content"]}]} for m in history_res.data]
+    except HTTPException:
+        raise
     except Exception:
         conv_id = req.conversation_id or "offline"
         contents = []
@@ -778,20 +783,12 @@ async def chat(request: Request, req: ChatRequest, user=Depends(verify_user_jwt)
         except Exception as e:
             raise HTTPException(status_code=503, detail=f"Knowledge base search unavailable: {str(e)}")
 
-    # Persist messages
-    NOT_FOUND_PHRASES = ["not found", "isn't covered", "not covered", "not in our", "not available in"]
-    is_fallback = any(p in text.lower() for p in NOT_FOUND_PHRASES)
+    # Persist messages — always save both user + model
     try:
-        if not is_fallback:
-            sb.table("messages").insert([
-                {"conversation_id": conv_id, "role": "user",  "content": req.message, "citations": []},
-                {"conversation_id": conv_id, "role": "model", "content": text, "citations": citations},
-            ]).execute()
-        else:
-            sb.table("messages").insert([
-                {"conversation_id": conv_id, "role": "user", "content": req.message, "citations": []},
-            ]).execute()
-        # Increment messages_sent counter
+        sb.table("messages").insert([
+            {"conversation_id": conv_id, "role": "user",  "content": req.message, "citations": []},
+            {"conversation_id": conv_id, "role": "model", "content": text, "citations": citations},
+        ]).execute()
         sb.table("allowed_users").update({"messages_sent": (user["messages_sent"] or 0) + 1}).eq("email", user["email"]).execute()
     except Exception:
         pass
@@ -817,6 +814,9 @@ async def web_search_endpoint(request: Request, req: ChatRequest, user=Depends(v
     conv_id = req.conversation_id
     try:
         if not conv_id:
+            count_res = sb.table("conversations").select("id", count="exact").eq("user_email", user["email"]).execute()
+            if (count_res.count or 0) >= 5:
+                raise HTTPException(status_code=429, detail="CONV_LIMIT_REACHED")
             res = sb.table("conversations").insert({"title": req.message[:60], "user_email": user["email"]}).execute()
             conv_id = res.data[0]["id"]
         else:
@@ -831,6 +831,8 @@ async def web_search_endpoint(request: Request, req: ChatRequest, user=Depends(v
                 raise HTTPException(status_code=403, detail="Access denied")
         history_res = sb.table("messages").select("role,content").eq("conversation_id", conv_id).order("created_at").execute()
         contents = [{"role": m["role"], "parts": [{"text": m["content"]}]} for m in history_res.data]
+    except HTTPException:
+        raise
     except Exception:
         contents = []
         conv_id = conv_id or "offline"
@@ -886,6 +888,7 @@ async def web_search_endpoint(request: Request, req: ChatRequest, user=Depends(v
 
     try:
         sb.table("messages").insert([
+            {"conversation_id": conv_id, "role": "user",  "content": req.message, "citations": []},
             {"conversation_id": conv_id, "role": "model", "content": text, "citations": citations},
         ]).execute()
     except Exception:

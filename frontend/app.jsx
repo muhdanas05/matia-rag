@@ -184,7 +184,14 @@ function Sidebar({ view, setView, conversations, activeConv, setActiveConv, onDe
 
       {/* New Chat */}
       <div style={{ padding: '4px 12px 8px', display: 'flex', flexDirection: 'column', gap: 6 }}>
-        <button onClick={() => { setActiveConv(null); if (isMobile) onClose(); }} style={{
+        <button onClick={() => {
+          if (conversations.today.length >= 5) {
+            alert('You\'ve reached the 5 conversation limit. Please delete an existing conversation to start a new one.');
+            return;
+          }
+          setActiveConv(null);
+          if (isMobile) onClose();
+        }} style={{
           ...pillDark, justifyContent: 'flex-start', gap: 8, height: 38,
         }}>
           <IconPlus size={14} /> <span>New Chat</span>
@@ -606,7 +613,7 @@ function Message({ m, isMobile }) {
             <div
               className="md-content"
               style={{ wordBreak: 'break-word' }}
-              dangerouslySetInnerHTML={{ __html: window.marked ? window.marked.parse(m.text || '') : (m.text || '') }}
+              dangerouslySetInnerHTML={{ __html: window.safeMarkdown(m.text || '') }}
             />
           )}
         </div>
@@ -935,7 +942,7 @@ function AppShell() {
     try {
       const res = await apiFetch(`${API_URL}/api/conversations`, { headers: authHeaders() });
       const data = await res.json();
-      const today = data.slice(0, 50).map(c => ({
+      const today = data.slice(0, 5).map(c => ({
          id: c.id,
          titleHead: c.title.slice(0, 20),
          titleTail: c.title.slice(20) || ''
@@ -1027,6 +1034,18 @@ function AppShell() {
       });
 
       if (!res.ok) {
+        if (res.status === 429) {
+          const errJson = await res.json().catch(() => ({}));
+          if (errJson.detail === 'CONV_LIMIT_REACHED') {
+            setMessages(prev => prev.filter(m => m.id !== userMsg.id));
+            setMessages(prev => [...prev, {
+              id: Date.now() + 1, from: 'ai', kind: 'text',
+              text: 'You\'ve reached the 5 conversation limit. Please delete an existing conversation from the sidebar to start a new one.',
+              time: nowTime()
+            }]);
+            return;
+          }
+        }
         console.error(`KB Search failed: ${res.status}`);
         setMessages(prev => [...prev, {
           id: Date.now() + 1, from: 'ai', kind: 'text',
