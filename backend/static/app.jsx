@@ -119,16 +119,18 @@ const IconX = (p) => <Icon {...p} d={['M18 6 6 18', 'M6 6l12 12']} />;
 function Sidebar({ view, setView, conversations, activeConv, setActiveConv, onDelete, isOpen, onClose, isMobile }) {
   const [foldersOpen, setFoldersOpen] = useState(true);
   const [chatsOpen, setChatsOpen] = useState(true);
+  const windowWidth = useWindowWidth();
 
   const sectionHeader = (label, open, setOpen, withAdd = true) => (
     <div style={{
       display: 'flex', alignItems: 'center', gap: 6,
-      padding: '6px 10px 4px', color: T.sideDim, fontSize: 11.5,
+      padding: '6px 10px 4px', color: T.sideDim, fontSize: 12,
       letterSpacing: 0.2,
     }}>
       <button onClick={() => setOpen(!open)} style={{
         display: 'flex', alignItems: 'center', gap: 6, background: 'transparent',
-        border: 0, color: T.sideDim, fontSize: 11.5, cursor: 'pointer', padding: 0,
+        border: 0, color: T.sideDim, fontSize: 12, cursor: 'pointer', padding: 0,
+        minHeight: 32,
       }}>
         <span style={{ transition: 'transform .15s', transform: open ? 'none' : 'rotate(-90deg)', display: 'inline-flex' }}>
           <IconChev size={12} sw={2} />
@@ -143,7 +145,7 @@ function Sidebar({ view, setView, conversations, activeConv, setActiveConv, onDe
   );
 
   const sidebarStyle = isMobile ? {
-    width: 260, flexShrink: 0, height: '100%',
+    width: Math.min(260, Math.round(windowWidth * 0.78)), flexShrink: 0, height: '100%',
     background: T.sideBg, color: T.sideText,
     display: 'flex', flexDirection: 'column',
     borderRight: `1px solid ${T.sideBorder}`,
@@ -175,9 +177,11 @@ function Sidebar({ view, setView, conversations, activeConv, setActiveConv, onDe
         {isMobile && (
           <button onClick={onClose} style={{
             marginLeft: 'auto', background: 'transparent', border: 0,
-            color: T.sideDim, cursor: 'pointer', padding: 4, display: 'flex',
+            color: T.sideDim, cursor: 'pointer',
+            width: 40, height: 40, display: 'flex', alignItems: 'center', justifyContent: 'center',
+            borderRadius: 8,
           }}>
-            <IconX size={16} />
+            <IconX size={18} />
           </button>
         )}
       </div>
@@ -199,19 +203,19 @@ function Sidebar({ view, setView, conversations, activeConv, setActiveConv, onDe
       </div>
 
       {/* scrollable lists */}
-      <div style={{ flex: 1, overflowY: 'auto', paddingBottom: 12 }}>
+      <div style={{ flex: 1, overflowY: 'auto', WebkitOverflowScrolling: 'touch', paddingBottom: 12 }}>
         {/* Chats */}
         <div style={{ padding: '6px 12px 0' }}>
           {sectionHeader('Chats', chatsOpen, setChatsOpen, false)}
           {chatsOpen && (
             <div style={{ marginTop: 2 }}>
-              <div style={{ color: T.sideDim, fontSize: 11, padding: '6px 10px 2px' }}>Today</div>
+              <div style={{ color: T.sideDim, fontSize: 12, padding: '6px 10px 2px' }}>Today</div>
               {conversations.today.map(c => (
                 <ChatRow key={c.id} c={c} active={activeConv === c.id}
                   onClick={() => { setActiveConv(c.id); setView('chat'); if (isMobile) onClose(); }}
                   onDelete={onDelete} />
               ))}
-              <div style={{ color: T.sideDim, fontSize: 11, padding: '8px 10px 2px' }}>Yesterday</div>
+              <div style={{ color: T.sideDim, fontSize: 12, padding: '8px 10px 2px' }}>Yesterday</div>
               {conversations.yesterday.map(c => (
                 <ChatRow key={c.id} c={c} active={activeConv === c.id}
                   onClick={() => { setActiveConv(c.id); setView('chat'); if (isMobile) onClose(); }}
@@ -234,7 +238,8 @@ function Sidebar({ view, setView, conversations, activeConv, setActiveConv, onDe
         </div>
         <button onClick={doLogout} title="Sign out" style={{
           background: 'transparent', border: 0, color: T.sideDim, cursor: 'pointer',
-          padding: 4, borderRadius: 6, display: 'flex', alignItems: 'center',
+          minWidth: 44, minHeight: 44, padding: 10, borderRadius: 6,
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
           fontSize: 11,
         }}>
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
@@ -292,7 +297,7 @@ function TopBar({ title = 'Route', titleAccent = ' 66', onMenuOpen, isMobile }) 
       {isMobile && (
         <button onClick={onMenuOpen} style={{
           display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-          width: 38, height: 38, borderRadius: 10, border: `1px solid ${T.border}`,
+          width: 44, height: 44, borderRadius: 10, border: `1px solid ${T.border}`,
           background: T.bgSoft, color: T.ink, cursor: 'pointer', marginRight: 10,
           flexShrink: 0,
         }}>
@@ -339,7 +344,7 @@ function Composer({ value, onChange, onSend, isMobile, model, setModel, models }
 
   return (
     /* safe-bottom class adds env(safe-area-inset-bottom) padding for iPhone home bar */
-    <div className="safe-bottom" style={{ padding: isMobile ? '10px 12px 8px' : '14px 28px 22px', flexShrink: 0 }}>
+    <div className="safe-bottom" style={{ padding: isMobile ? '10px 12px 0' : '14px 28px 22px', paddingBottom: isMobile ? 'max(8px, env(safe-area-inset-bottom))' : 22, flexShrink: 0 }}>
       <div style={{
         display: 'flex', alignItems: 'center', gap: 10,
         background: T.bgSoft, borderRadius: 30, padding: '8px 8px 8px 8px',
@@ -369,9 +374,10 @@ function Composer({ value, onChange, onSend, isMobile, model, setModel, models }
         {models && model && (
           <select value={model} onChange={e => setModel(e.target.value)} style={{
             background: 'transparent', border: `1px solid ${T.border}`,
-            borderRadius: 20, padding: '4px 8px', fontSize: 11,
+            borderRadius: 20, padding: isMobile ? '8px 10px' : '4px 8px',
+            fontSize: isMobile ? 12 : 11, minHeight: isMobile ? 40 : 'auto',
             color: T.inkDim, cursor: 'pointer', outline: 'none',
-            flexShrink: 0, maxWidth: isMobile ? 78 : 120,
+            flexShrink: 0, maxWidth: isMobile ? 84 : 120,
           }}>
             {models.map(m => (
               <option key={m.id} value={m.id}>{isMobile ? m.short : m.label}</option>
@@ -449,8 +455,8 @@ function HomeView({ onPick, draft, setDraft, onSend, onMenuOpen, isMobile, model
           {cards.map((c, i) => (
             <button key={i} className="liquid-hover" onClick={() => onPick(c.title.replace('\n', ' '))} style={{
               textAlign: 'left', background: T.card, border: `1px solid ${T.border}`,
-              borderRadius: 14, padding: '16px 16px 18px', cursor: 'pointer',
-              display: 'flex', flexDirection: 'column', gap: 10, position: 'relative',
+              borderRadius: 14, padding: isMobile ? '14px 12px 16px' : '16px 16px 18px',
+              cursor: 'pointer', display: 'flex', flexDirection: 'column', gap: 10, position: 'relative',
             }}
             >
               <div style={{
@@ -464,7 +470,7 @@ function HomeView({ onPick, draft, setDraft, onSend, onMenuOpen, isMobile, model
               </div>
               <div style={{
                 fontFamily: 'Fraunces, Georgia, serif', fontSize: 17,
-                fontWeight: 500, lineHeight: 1.15, color: T.ink, whiteSpace: 'pre-line',
+                fontWeight: 500, lineHeight: 1.15, color: T.ink, whiteSpace: 'normal',
                 paddingRight: 28,
               }}>{c.title}</div>
               <div style={{ fontSize: 11.5, lineHeight: 1.5, color: T.inkDim }}>{c.body}</div>
@@ -502,7 +508,7 @@ function SearchStatus({ phase, steps }) {
         <Avatar side="ai" />
         <div style={{
           background: cfg.bg, border: `1px solid ${cfg.border}`,
-          borderRadius: 14, padding: '12px 16px', minWidth: 220,
+          borderRadius: 14, padding: '12px 16px', minWidth: 'min(220px, calc(100vw - 80px))',
         }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: steps.length ? 10 : 0 }}>
             <span style={{ fontSize: 16, animation: phase === 'web' ? 'spin 1.2s linear infinite' : 'none' }}>
@@ -546,14 +552,13 @@ function ChatView({ messages, draft, setDraft, onSend, isLoading, searchPhase, s
   useEffect(() => {
     const el = scrollRef.current;
     if (!el) return;
-
+    const isNearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 120;
+    if (!isNearBottom && !isLoading) return;
     if (isLoading) {
       el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' });
     } else {
       const lastMsg = el.querySelector('.message-block:last-child');
-      if (lastMsg) {
-        lastMsg.scrollIntoView({ behavior: 'smooth', block: 'start' });
-      }
+      if (lastMsg) lastMsg.scrollIntoView({ behavior: 'smooth', block: 'start' });
     }
   }, [messages.length, isLoading]);
 
@@ -561,7 +566,8 @@ function ChatView({ messages, draft, setDraft, onSend, isLoading, searchPhase, s
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0 }}>
       <TopBar title="Route" titleAccent=" 66" onMenuOpen={onMenuOpen} isMobile={isMobile} />
       <div ref={scrollRef} style={{
-        flex: 1, overflowY: 'auto', overflowX: 'hidden', padding: isMobile ? '8px 12px 8px' : '8px 28px 8px',
+        flex: 1, overflowY: 'auto', WebkitOverflowScrolling: 'touch',
+        overflowX: 'hidden', padding: isMobile ? '8px 12px 8px' : '8px 28px 8px',
         minHeight: 0,
       }}>
         <div style={{ maxWidth: 760, margin: '0 auto', display: 'flex', flexDirection: 'column', gap: 22, paddingBottom: 40 }}>
@@ -619,7 +625,7 @@ function Message({ m, isMobile }) {
         </div>
         {/* footer (time + tools) */}
         {!isUser && m.time && (
-          <div style={{ display: 'flex', alignItems: 'center', gap: 12, color: T.inkFaint, fontSize: 11 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12, color: T.inkFaint, fontSize: 12 }}>
             {m.tools && (
               <div style={{ display: 'flex', gap: 10 }}>
                 <button style={tinyBtn}><IconReload size={13} /></button>
@@ -649,10 +655,11 @@ function Message({ m, isMobile }) {
               const label = c.source ? c.source.replace('🌐 ', '').replace('europetrip_US_', '') : '';
               return isWebUrl ? (
                 <a key={i} href={c.snippet} target="_blank" rel="noreferrer" style={{
-                  fontSize: 10.5, color: T.mint, textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 3,
+                  fontSize: 12, color: T.mint, textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 3,
+                  minHeight: 28, padding: '2px 0',
                 }}>↗ {label}</a>
               ) : label ? (
-                <span key={i} style={{ fontSize: 10.5, color: T.inkDim, display: 'inline-flex', alignItems: 'center', gap: 3 }}>
+                <span key={i} style={{ fontSize: 12, color: T.inkDim, display: 'inline-flex', alignItems: 'center', gap: 3 }}>
                   📄 {label}
                 </span>
               ) : null;
@@ -660,7 +667,7 @@ function Message({ m, isMobile }) {
           </div>
         )}
         {isUser && m.time && (
-          <div style={{ color: T.inkFaint, fontSize: 11 }}>{m.time}</div>
+          <div style={{ color: T.inkFaint, fontSize: 12 }}>{m.time}</div>
         )}
       </div>
     </div>
@@ -669,7 +676,9 @@ function Message({ m, isMobile }) {
 
 const tinyBtn = {
   background: 'transparent', border: 0, color: T.inkFaint,
-  cursor: 'pointer', padding: 0, display: 'inline-flex',
+  cursor: 'pointer', padding: 8, display: 'inline-flex',
+  alignItems: 'center', justifyContent: 'center',
+  minWidth: 36, minHeight: 36, borderRadius: 6,
 };
 
 function AudioBubble() {
@@ -814,7 +823,7 @@ function LoginView({ onSession }) {
   const inputStyle = (hasErr) => ({
     width: '100%', height: 50, borderRadius: 12,
     border: hasErr ? '1.5px solid #dc4a3a' : `1.5px solid ${T.border}`,
-    padding: '0 16px', fontSize: 15,
+    padding: '0 16px', fontSize: 16,
     color: T.ink, background: '#fff', outline: 'none', boxSizing: 'border-box',
   });
   const btnStyle = (disabled) => ({
@@ -827,7 +836,7 @@ function LoginView({ onSession }) {
 
   return (
     <div style={{
-      width: '100vw', height: '100vh',
+      width: '100%', height: '100%',
       display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
       background: T.bg, fontFamily: '-apple-system, "SF Pro Text", "Inter", system-ui, sans-serif',
       padding: '24px 16px', boxSizing: 'border-box',
@@ -876,7 +885,7 @@ function LoginView({ onSession }) {
                 onKeyDown={e => e.key === 'Enter' && verifyOtp()}
                 placeholder="123456"
                 autoFocus maxLength={6}
-                style={{ ...inputStyle(!!error), textAlign: 'center', letterSpacing: 6, fontSize: 22, fontFamily: 'monospace' }}
+                style={{ ...inputStyle(!!error), textAlign: 'center', letterSpacing: 4, fontSize: 22, fontFamily: 'monospace' }}
               />
               {error && <div style={{ fontSize: 12, color: '#dc4a3a', textAlign: 'center', marginTop: -4 }}>{error}</div>}
               <button onClick={verifyOtp} disabled={loading || otp.length < 4} style={btnStyle(loading || otp.length < 4)}>
