@@ -139,7 +139,15 @@ app = FastAPI()
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
-_allowed_origins = [o for o in [SITE_URL, BACKEND_ORIGIN, "https://route66operator.com"] if o]
+_allowed_origins = [o for o in [
+    SITE_URL,
+    BACKEND_ORIGIN,
+    "https://route66operator.com",
+    # History viewer (admin tool) — local dev + add deployed URL here
+    "http://localhost:5500",
+    "http://127.0.0.1:5500",
+    os.getenv("HISTORY_VIEWER_URL", ""),
+] if o]
 app.add_middleware(
     CORSMiddleware,
     allow_origins=_allowed_origins,
@@ -444,6 +452,41 @@ async def admin_stats(_=Depends(verify_admin_jwt)):
         "total_messages": total_msgs,
         "total_cost_usd": round(total_cost, 4),
     }
+
+
+@app.get("/api/admin/conversations")
+async def admin_list_conversations(email: str, _=Depends(verify_admin_jwt)):
+    email = email.strip().lower()
+    if not email:
+        raise HTTPException(status_code=400, detail="email required")
+    res = (
+        sb.table("conversations")
+        .select("id, title, created_at, updated_at, user_email")
+        .eq("user_email", email)
+        .order("updated_at", desc=True)
+        .execute()
+    )
+    return res.data
+
+
+@app.get("/api/admin/conversations/{conv_id}/messages")
+async def admin_get_conversation_messages(conv_id: str, _=Depends(verify_admin_jwt)):
+    conv_res = (
+        sb.table("conversations")
+        .select("id, title, user_email, created_at")
+        .eq("id", conv_id)
+        .execute()
+    )
+    if not conv_res.data:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+    msg_res = (
+        sb.table("messages")
+        .select("id, role, content, citations, created_at")
+        .eq("conversation_id", conv_id)
+        .order("created_at")
+        .execute()
+    )
+    return {"conversation": conv_res.data[0], "messages": msg_res.data}
 
 
 # ── System prompt ──────────────────────────────────────────────────────────────
