@@ -143,7 +143,8 @@ _allowed_origins = [o for o in [
     SITE_URL,
     BACKEND_ORIGIN,
     "https://route66operator.com",
-    # History viewer (admin tool) — local dev + add deployed URL here
+    # History viewer (admin tool)
+    "https://history-viewer-rt66.netlify.app",
     "http://localhost:5500",
     "http://127.0.0.1:5500",
     os.getenv("HISTORY_VIEWER_URL", ""),
