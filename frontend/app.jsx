@@ -189,10 +189,6 @@ function Sidebar({ view, setView, conversations, activeConv, setActiveConv, onDe
       {/* New Chat */}
       <div style={{ padding: '4px 12px 8px', display: 'flex', flexDirection: 'column', gap: 6 }}>
         <button className={newChatFlash ? 'new-chat-flash' : ''} onClick={() => {
-          if (conversations.today.length >= 5) {
-            alert('You\'ve reached the 5 conversation limit. Please delete an existing conversation to start a new one.');
-            return;
-          }
           if (activeConv === null) {
             setNewChatFlash(true);
             setTimeout(() => setNewChatFlash(false), 500);
@@ -986,7 +982,7 @@ function AppShell() {
     try {
       const res = await apiFetch(`${API_URL}/api/conversations`, { headers: authHeaders() });
       const data = await res.json();
-      const today = data.slice(0, 5).map(c => ({
+      const today = data.map(c => ({
          id: c.id,
          titleHead: c.title.slice(0, 20),
          titleTail: c.title.slice(20) || ''

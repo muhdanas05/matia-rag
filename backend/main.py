@@ -7,6 +7,7 @@ import mimetypes
 import httpx
 import jwt as pyjwt
 from pathlib import Path
+from datetime import datetime, timedelta, timezone
 from fastapi import FastAPI, UploadFile, File, HTTPException, BackgroundTasks, Request, Header, Depends
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
@@ -678,12 +679,16 @@ async def delete_file(file_id: str, _=Depends(verify_admin_jwt)):
 
 @app.get("/api/conversations")
 async def list_conversations(user=Depends(verify_user_jwt)):
+    cutoff = (datetime.now(timezone.utc) - timedelta(days=90)).isoformat()
+    try:
+        sb.table("conversations").delete().eq("user_email", user["email"]).lt("updated_at", cutoff).execute()
+    except Exception:
+        pass
     res = (
         sb.table("conversations")
         .select("id,title,updated_at")
         .eq("user_email", user["email"])
         .order("updated_at", desc=True)
-        .limit(50)
         .execute()
     )
     return res.data
@@ -757,9 +762,6 @@ async def chat(request: Request, req: ChatRequest, user=Depends(verify_user_jwt)
                 raise HTTPException(status_code=403, detail="Access denied")
             conv_id = req.conversation_id
         else:
-            count_res = sb.table("conversations").select("id", count="exact").eq("user_email", user["email"]).execute()
-            if (count_res.count or 0) >= 5:
-                raise HTTPException(status_code=429, detail="CONV_LIMIT_REACHED")
             res = sb.table("conversations").insert({"title": req.message[:60], "user_email": user["email"]}).execute()
             conv_id = res.data[0]["id"]
         history_res = sb.table("messages").select("role,content").eq("conversation_id", conv_id).order("created_at").execute()
@@ -858,9 +860,6 @@ async def web_search_endpoint(request: Request, req: ChatRequest, user=Depends(v
     conv_id = req.conversation_id
     try:
         if not conv_id:
-            count_res = sb.table("conversations").select("id", count="exact").eq("user_email", user["email"]).execute()
-            if (count_res.count or 0) >= 5:
-                raise HTTPException(status_code=429, detail="CONV_LIMIT_REACHED")
             res = sb.table("conversations").insert({"title": req.message[:60], "user_email": user["email"]}).execute()
             conv_id = res.data[0]["id"]
         else:
