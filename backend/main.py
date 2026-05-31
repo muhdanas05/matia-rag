@@ -1,4 +1,5 @@
 import os
+import re
 import json
 import hmac
 import hashlib
@@ -219,6 +220,31 @@ async def verify_admin_jwt(authorization: str = Header(None)):
 
 def api_headers() -> dict:
     return {"x-goog-api-key": API_KEY, "Content-Type": "application/json"}
+
+
+# Matches Gemini tool_code / executable code blocks that occasionally leak as plain text
+_TOOL_CODE_BLOCK_RE = re.compile(
+    r"```(?:tool_code|tool_outputs?|python|google_search|file_search)\b[^\n]*\n.*?```",
+    re.DOTALL | re.IGNORECASE,
+)
+
+
+def extract_text_from_candidate(candidate: dict) -> str:
+    """
+    Gemini File Search / Google Search responses return multiple `parts`:
+    text parts AND executableCode / codeExecutionResult parts. We only want
+    the user-facing text. Taking `parts[0].text` (the old behavior) captured
+    the tool_code invocation instead of the actual answer.
+    """
+    parts = candidate.get("content", {}).get("parts", []) or []
+    chunks = []
+    for p in parts:
+        if isinstance(p, dict) and isinstance(p.get("text"), str) and p["text"].strip():
+            chunks.append(p["text"])
+    text = "\n".join(chunks).strip()
+    # Safety net: strip any tool_code-style fenced blocks the model might emit as plain text
+    text = _TOOL_CODE_BLOCK_RE.sub("", text).strip()
+    return text or "No response generated."
 
 
 async def openrouter_chat(messages: list, model: str, system_prompt: str) -> str:
@@ -800,7 +826,7 @@ async def chat(request: Request, req: ChatRequest, user=Depends(verify_user_jwt)
                     raise HTTPException(status_code=r.status_code, detail=r.text)
                 d = r.json()
                 candidate = d.get("candidates", [{}])[0]
-                text = candidate.get("content", {}).get("parts", [{}])[0].get("text", "No response generated.")
+                text = extract_text_from_candidate(candidate)
                 citations = []
                 grounding = candidate.get("groundingMetadata", {})
                 for chunk in grounding.get("groundingChunks", []):
@@ -899,7 +925,8 @@ async def web_search_endpoint(request: Request, req: ChatRequest, user=Depends(v
             if r.status_code == 200:
                 d = r.json()
                 candidate = d.get("candidates", [{}])[0]
-                text = candidate.get("content", {}).get("parts", [{}])[0].get("text")
+                extracted = extract_text_from_candidate(candidate)
+                text = extracted if extracted != "No response generated." else None
                 for chunk in candidate.get("groundingMetadata", {}).get("groundingChunks", []):
                     web = chunk.get("web", {})
                     if web.get("uri") or web.get("title"):
@@ -922,7 +949,8 @@ async def web_search_endpoint(request: Request, req: ChatRequest, user=Depends(v
                 if r.status_code == 200:
                     d = r.json()
                     candidate = d.get("candidates", [{}])[0]
-                    text = candidate.get("content", {}).get("parts", [{}])[0].get("text")
+                    extracted = extract_text_from_candidate(candidate)
+                    text = extracted if extracted != "No response generated." else None
         except Exception:
             pass
 
